@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// BranchService handles Branch object creation and business logic
 type BranchService interface {
 	GetCurrentBranch() (*Branch, error)
 	GetMergedBranches(baseBranch string) ([]Branch, error)
@@ -17,7 +16,6 @@ type BranchService interface {
 	IsProtectedBranch(branch *Branch, patterns []string) bool
 }
 
-// TestableGitClient interface for testing (matches our sophisticated mock)
 type TestableGitClient interface {
 	GetCurrentBranchName() (string, error)
 	GetMergedBranchNames(baseBranch string) ([]string, error)
@@ -28,22 +26,18 @@ type TestableGitClient interface {
 	HasUnpushedCommits(branchName string) (bool, error)
 }
 
-// DefaultBranchService implements BranchService using gitClient
 type DefaultBranchService struct {
-	Client gitClient // Public for testing
+	Client gitClient
 }
 
-// NewBranchService creates a new BranchService with default git client
 func NewBranchService() BranchService {
 	return &DefaultBranchService{Client: newGitClient()}
 }
 
-// NewBranchServiceWithClient creates a new BranchService with provided git client (for testing)
 func NewBranchServiceWithClient(client TestableGitClient) BranchService {
 	return &TestableBranchService{client: client}
 }
 
-// TestableBranchService implements BranchService using TestableGitClient
 type TestableBranchService struct {
 	client TestableGitClient
 }
@@ -66,7 +60,6 @@ func (s *DefaultBranchService) GetMergedBranches(baseBranch string) ([]Branch, e
 	for _, name := range branchNames {
 		branch, err := s.GetBranchByName(name)
 		if err != nil {
-			// Skip branches we can't get info for
 			continue
 		}
 		branch.IsMerged = true
@@ -84,14 +77,12 @@ func (s *DefaultBranchService) GetAllBranches() ([]Branch, error) {
 
 	var branches []Branch
 	for _, name := range branchNames {
-		// Skip remote HEAD reference
 		if name == "origin/HEAD" {
 			continue
 		}
 
 		branch, err := s.createBranchFromName(name)
 		if err != nil {
-			// Skip branches we can't get info for
 			continue
 		}
 		branches = append(branches, *branch)
@@ -127,9 +118,7 @@ func (s *DefaultBranchService) IsProtectedBranch(branch *Branch, patterns []stri
 	return false
 }
 
-// createBranchFromName creates a Branch object from a branch name
 func (s *DefaultBranchService) createBranchFromName(branchName string) (*Branch, error) {
-	// Determine if this is a remote branch
 	isRemote := strings.HasPrefix(branchName, "origin/")
 	actualName := branchName
 	remote := ""
@@ -139,7 +128,6 @@ func (s *DefaultBranchService) createBranchFromName(branchName string) (*Branch,
 		remote = "origin"
 	}
 
-	// Get commit info
 	commitInfo, err := s.Client.getBranchCommitInfo(actualName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit info for branch %s: %w", actualName, err)
@@ -155,13 +143,10 @@ func (s *DefaultBranchService) createBranchFromName(branchName string) (*Branch,
 		commitDate = time.Time{}
 	}
 
-	// Check if this is the current branch
 	currentBranchName, err := s.Client.getCurrentBranchName()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current branch: %w", err)
 	}
-
-	// Check for unpushed commits (only for local branches)
 	hasUnpushed := false
 	if !isRemote {
 		hasUnpushed, _ = s.Client.hasUnpushedCommits(actualName)
@@ -171,7 +156,7 @@ func (s *DefaultBranchService) createBranchFromName(branchName string) (*Branch,
 		Name:               actualName,
 		IsCurrent:          actualName == currentBranchName && !isRemote,
 		IsRemote:           isRemote,
-		IsMerged:           false, // Will be set by caller if needed
+		IsMerged:           false,
 		LastCommitAt:       commitDate,
 		LastCommitSHA:      strings.TrimSpace(parts[3]),
 		AuthorUserName:     strings.TrimSpace(parts[1]),
@@ -183,7 +168,6 @@ func (s *DefaultBranchService) createBranchFromName(branchName string) (*Branch,
 	return branch, nil
 }
 
-// TestableBranchService methods
 func (s *TestableBranchService) GetCurrentBranch() (*Branch, error) {
 	branchName, err := s.client.GetCurrentBranchName()
 	if err != nil {
@@ -202,7 +186,6 @@ func (s *TestableBranchService) GetMergedBranches(baseBranch string) ([]Branch, 
 	for _, name := range branchNames {
 		branch, err := s.GetBranchByName(name)
 		if err != nil {
-			// Skip branches we can't get info for
 			continue
 		}
 		branch.IsMerged = true
@@ -220,14 +203,12 @@ func (s *TestableBranchService) GetAllBranches() ([]Branch, error) {
 
 	var branches []Branch
 	for _, name := range branchNames {
-		// Skip remote HEAD reference
 		if name == "origin/HEAD" {
 			continue
 		}
 
 		branch, err := s.createBranchFromName(name)
 		if err != nil {
-			// Skip branches we can't get info for
 			continue
 		}
 		branches = append(branches, *branch)

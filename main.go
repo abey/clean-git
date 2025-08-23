@@ -24,16 +24,17 @@ var (
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "%s\n\n", Description)
-		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] COMMAND\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Commands:\n")
+		fmt.Fprintf(os.Stderr, "Usage: %s [GLOBAL OPTIONS] COMMAND [SUBCOMMAND OPTIONS]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Subcommands:\n")
 		fmt.Fprintf(os.Stderr, "  clean     Clean up stale and merged branches\n")
-		fmt.Fprintf(os.Stderr, "  config   	Setup or update configuration\n")
+		fmt.Fprintf(os.Stderr, "  config    Setup or update configuration\n")
 		fmt.Fprintf(os.Stderr, "\nGlobal Options:\n")
 		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nRun '%s COMMAND -h' for subcommand options.\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s --version\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s clean --dry-run\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s onboard\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --dry-run clean --local-only\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s config\n", os.Args[0])
 	}
 
 	flag.Parse()
@@ -46,20 +47,24 @@ func main() {
 		flag.Usage()
 		return
 	}
-	args := flag.Args()
-	if len(args) == 0 {
+
+	subcmd := flag.Arg(0)
+	if subcmd == "" {
+		if *config {
+			handleConfigCommand(nil)
+			return
+		}
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	command := args[0]
-	switch command {
+	switch subcmd {
 	case "clean":
-		handleCleanCommand(args[1:])
+		handleCleanCommand(flag.Args()[1:])
 	case "config":
-		handleConfigCommand(args[1:])
+		handleConfigCommand(flag.Args()[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "Error: Unknown command '%s'\n\n", command)
+		fmt.Fprintf(os.Stderr, "Error: Unknown command '%s'\n\n", subcmd)
 		flag.Usage()
 		os.Exit(1)
 	}

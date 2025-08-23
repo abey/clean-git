@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 )
 
-func findGitRepoRoot() (string, error) {
+func FindGitRepoRoot() (string, error) {
 	currentDir, err := os.Getwd()
 	if err != nil {
 		return "", err

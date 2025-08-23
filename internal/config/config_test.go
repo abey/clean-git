@@ -111,7 +111,7 @@ func TestFindGitRepoRoot(t *testing.T) {
 		err = os.Chdir(nestedDir)
 		require.NoError(t, err)
 
-		foundRepoRoot, err := findGitRepoRoot()
+		foundRepoRoot, err := FindGitRepoRoot()
 		require.NoError(t, err)
 		expectedPath := repoRoot // macOS hack
 		if strings.HasPrefix(foundRepoRoot, "/private") {
@@ -125,7 +125,7 @@ func TestFindGitRepoRoot(t *testing.T) {
 		err := os.Chdir(tempDir)
 		require.NoError(t, err)
 
-		_, err = findGitRepoRoot()
+		_, err = FindGitRepoRoot()
 		assert.ErrorIs(t, err, os.ErrNotExist)
 	})
 }

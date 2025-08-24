@@ -1,4 +1,4 @@
-module clean-git
+module github.com/abey/clean-git
 
 go 1.22
 

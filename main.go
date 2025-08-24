@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"clean-git/internal/config"
-	"clean-git/internal/errors"
-	"clean-git/internal/git"
+	"github.com/abey/clean-git/internal/config"
+	"github.com/abey/clean-git/internal/errors"
+	"github.com/abey/clean-git/internal/git"
 )
 
 const (

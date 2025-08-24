@@ -344,7 +344,7 @@ func handleListCommand(args []string, configService config.Service) {
 
 	branchService := git.NewBranchService(cfg.RemoteName)
 
-	allBranches, err := branchService.GetAllBranches()
+	allBranches, err := branchService.GetBranchesWithTrackedRemotes()
 	if err != nil {
 		errors.FatalError(errors.ExitGit, "Failed to get branches: %v", err)
 	}
@@ -410,13 +410,29 @@ func handleListCommand(args []string, configService config.Service) {
 		return
 	}
 
-	fmt.Printf("\n=== Branch List (%d branches) ===\n", len(filteredBranches))
-	fmt.Printf("Sorted by most recent commit first\n\n")
+	maxNameLen := 0
+	maxTypeLen := 0
+	maxStatusLen := 0
+	maxAgeLen := 0
+	maxMergeAgeLen := 0
+	maxMergedIntoLen := 0
+
+	type displayBranch struct {
+		branch      git.Branch
+		indicator   string
+		branchType  string
+		mergeStatus string
+		ageStr      string
+		mergeAgeStr string
+		mergedInto  string
+	}
+
+	var displayBranches []displayBranch
 
 	for _, branch := range filteredBranches {
-		currentIndicator := " "
+		indicator := " "
 		if branch.IsCurrent {
-			currentIndicator = "*"
+			indicator = "*"
 		}
 		branchType := "local"
 		if branch.IsRemote {
@@ -437,36 +453,105 @@ func handleListCommand(args []string, configService config.Service) {
 		}
 
 		age := time.Since(branch.LastCommitAt)
-		ageStr := formatDuration(age)
+		ageStr := formatDuration(age) + " ago"
 
-		remoteInfo := ""
-		if !branch.IsRemote {
-			if branch.HasUnpushedCommits {
-				remoteInfo = " (unpushed)"
-			} else if branch.Remote != "" {
-				remoteInfo = fmt.Sprintf(" (tracks %s)", branch.Remote)
-			}
-		}
-
-		fmt.Printf("%s %-30s %-8s %-12s last: %-12s",
-			currentIndicator,
-			branch.Name,
-			branchType,
-			mergeStatus,
-			ageStr+" ago")
-
+		mergeAgeStr := ""
 		if mergeStatus == "merged" && !mergeTime.IsZero() {
 			mergeAge := time.Since(mergeTime)
-			fmt.Printf(" merged: %-12s into %s", formatDuration(mergeAge)+" ago", mergedInto)
+			mergeAgeStr = formatDuration(mergeAge) + " ago"
 		}
 
-		fmt.Printf("%s\n", remoteInfo)
+		displayBranches = append(displayBranches, displayBranch{
+			branch:      branch,
+			indicator:   indicator,
+			branchType:  branchType,
+			mergeStatus: mergeStatus,
+			ageStr:      ageStr,
+			mergeAgeStr: mergeAgeStr,
+			mergedInto:  mergedInto,
+		})
+
+		if len(branch.Name) > maxNameLen {
+			maxNameLen = len(branch.Name)
+		}
+		if len(branchType) > maxTypeLen {
+			maxTypeLen = len(branchType)
+		}
+		if len(mergeStatus) > maxStatusLen {
+			maxStatusLen = len(mergeStatus)
+		}
+		if len(ageStr) > maxAgeLen {
+			maxAgeLen = len(ageStr)
+		}
+		if len(mergeAgeStr) > maxMergeAgeLen {
+			maxMergeAgeLen = len(mergeAgeStr)
+		}
+		if len(mergedInto) > maxMergedIntoLen {
+			maxMergedIntoLen = len(mergedInto)
+		}
+	}
+
+	maxNameLen += 2
+	maxTypeLen += 2
+	maxStatusLen += 2
+	maxAgeLen += 2
+	if maxMergeAgeLen > 0 {
+		maxMergeAgeLen += 2
+	}
+	if maxMergedIntoLen > 0 {
+		maxMergedIntoLen += 2
+	}
+
+	fmt.Printf("\n=== Branch List (%d branches) ===\n", len(filteredBranches))
+	fmt.Printf("Sorted by most recent commit first\n\n")
+
+	fmt.Printf("  %-*s %-*s %-*s %-*s",
+		maxNameLen, "BRANCH",
+		maxTypeLen, "TYPE",
+		maxStatusLen, "STATUS",
+		maxAgeLen, "LAST UPDATE")
+
+	if maxMergeAgeLen > 0 {
+		fmt.Printf(" %-*s %-*s", maxMergeAgeLen, "MERGED", maxMergedIntoLen, "INTO")
+	}
+	fmt.Printf("\n")
+
+	fmt.Printf("  %s %s %s %s",
+		strings.Repeat("-", maxNameLen),
+		strings.Repeat("-", maxTypeLen),
+		strings.Repeat("-", maxStatusLen),
+		strings.Repeat("-", maxAgeLen))
+
+	if maxMergeAgeLen > 0 {
+		fmt.Printf(" %s %s", strings.Repeat("-", maxMergeAgeLen), strings.Repeat("-", maxMergedIntoLen))
+	}
+	fmt.Printf("\n")
+
+	for _, db := range displayBranches {
+		fmt.Printf("%s %-*s %-*s %-*s %-*s",
+			db.indicator,
+			maxNameLen, db.branch.Name,
+			maxTypeLen, db.branchType,
+			maxStatusLen, db.mergeStatus,
+			maxAgeLen, db.ageStr)
+
+		if maxMergeAgeLen > 0 {
+			mergeInfo := ""
+			intoInfo := ""
+			if db.mergeAgeStr != "" {
+				mergeInfo = db.mergeAgeStr
+				intoInfo = db.mergedInto
+			}
+			fmt.Printf(" %-*s %-*s", maxMergeAgeLen, mergeInfo, maxMergedIntoLen, intoInfo)
+		}
+
+		fmt.Printf("\n")
 
 		if *verbose {
-			fmt.Printf("    Author: %s (%s)\n", branch.AuthorUserName, branch.AuthorEmail)
-			fmt.Printf("    SHA: %s\n", branch.LastCommitSHA)
-			if branch.Remote != "" {
-				fmt.Printf("    Remote: %s\n", branch.Remote)
+			fmt.Printf("    Author: %s (%s)\n", db.branch.AuthorUserName, db.branch.AuthorEmail)
+			fmt.Printf("    SHA: %s\n", db.branch.LastCommitSHA)
+			if db.branch.Remote != "" {
+				fmt.Printf("    Remote: %s\n", db.branch.Remote)
 			}
 		}
 	}
@@ -476,21 +561,17 @@ func handleListCommand(args []string, configService config.Service) {
 	mergedCount := 0
 	currentBranchName := ""
 
-	for _, branch := range filteredBranches {
-		if branch.IsRemote {
+	for _, db := range displayBranches {
+		if db.branch.IsRemote {
 			remoteCount++
 		} else {
 			localCount++
 		}
-		if branch.IsCurrent {
-			currentBranchName = branch.Name
+		if db.branch.IsCurrent {
+			currentBranchName = db.branch.Name
 		}
-
-		for _, mergedBranches := range mergedBranchMap {
-			if _, isMerged := mergedBranches[branch.Name]; isMerged {
-				mergedCount++
-				break
-			}
+		if db.mergeStatus == "merged" {
+			mergedCount++
 		}
 	}
 
@@ -570,11 +651,15 @@ func parseCommaSeparatedList(input string, defaultList []string, validateRegex b
 }
 
 func formatDuration(d time.Duration) string {
-	hours := int(d.Hours())
-	if hours%24 == 0 {
-		return fmt.Sprintf("%d days", hours/24)
+	days := int(d.Hours()) / 24
+	if days > 0 {
+		return fmt.Sprintf("%d days", days)
 	}
-	return fmt.Sprintf("%d hours", hours)
+	hours := int(d.Hours())
+	if hours > 0 {
+		return fmt.Sprintf("%d hours", hours)
+	}
+	return "< 1 hour"
 }
 
 func runInteractiveConfiguration(configService config.Service) error {

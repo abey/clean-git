@@ -161,7 +161,7 @@ func TestBranchService_GetMergedBranches(t *testing.T) {
 	}
 }
 
-func TestBranchService_GetAllBranches(t *testing.T) {
+func TestBranchService_GetBranchesWithTrackedRemotes(t *testing.T) {
 	tests := []struct {
 		name           string
 		setupMock      func(*mocks.SophisticatedGitClient)
@@ -170,7 +170,7 @@ func TestBranchService_GetAllBranches(t *testing.T) {
 		expectedError  bool
 	}{
 		{
-			name: "get all branches successfully",
+			name: "get branches with selective remotes successfully",
 			setupMock: func(m *mocks.SophisticatedGitClient) {
 				m.AddBranch(mocks.BranchData{
 					Name:        "feature/new",
@@ -179,6 +179,16 @@ func TestBranchService_GetAllBranches(t *testing.T) {
 					AuthorEmail: "new@example.com",
 					CommitSHA:   "new123",
 				})
+				// Add a remote branch that has a local counterpart (main)
+				m.AddBranch(mocks.BranchData{
+					Name:        "main",
+					IsRemote:    true,
+					Remote:      "origin",
+					AuthorName:  "Main User",
+					AuthorEmail: "main@example.com",
+					CommitSHA:   "main123",
+				})
+				// Add a remote branch without local counterpart (should be filtered out)
 				m.AddBranch(mocks.BranchData{
 					Name:        "develop",
 					IsRemote:    true,
@@ -189,7 +199,7 @@ func TestBranchService_GetAllBranches(t *testing.T) {
 				})
 			},
 			expectedLocal:  4, // main, feature/test, feature/merged, feature/new
-			expectedRemote: 2, // origin/main, origin/develop
+			expectedRemote: 1, // only origin/main (has local counterpart)
 			expectedError:  false,
 		},
 		{
@@ -208,7 +218,7 @@ func TestBranchService_GetAllBranches(t *testing.T) {
 
 			service := git.NewBranchServiceWithClient(mockClient, "origin")
 
-			branches, err := service.GetAllBranches()
+			branches, err := service.GetBranchesWithTrackedRemotes()
 
 			if tt.expectedError {
 				assert.Error(t, err)
@@ -481,6 +491,14 @@ func TestBranchService_ConfigurableRemoteName(t *testing.T) {
 			name:       "uses custom remote name for branch creation",
 			remoteName: "upstream",
 			setupMock: func(m *mocks.SophisticatedGitClient, remote string) {
+				// Add local branch first so remote will be included
+				m.AddBranch(mocks.BranchData{
+					Name:       "feature/custom-remote",
+					IsRemote:   false,
+					AuthorName: "Local User",
+					CommitSHA:  "local123",
+				})
+				// Add corresponding remote branch
 				m.AddBranch(mocks.BranchData{
 					Name:       "feature/custom-remote", // Just the branch name
 					IsRemote:   true,
@@ -505,6 +523,14 @@ func TestBranchService_ConfigurableRemoteName(t *testing.T) {
 			name:       "uses origin as default when empty remote name",
 			remoteName: "",
 			setupMock: func(m *mocks.SophisticatedGitClient, remote string) {
+				// Add local branch first so remote will be included
+				m.AddBranch(mocks.BranchData{
+					Name:       "feature/fallback",
+					IsRemote:   false,
+					AuthorName: "Local User",
+					CommitSHA:  "local123",
+				})
+				// Add corresponding remote branch
 				m.AddBranch(mocks.BranchData{
 					Name:       "feature/fallback", // Just the branch name
 					IsRemote:   true,
@@ -540,7 +566,7 @@ func TestBranchService_ConfigurableRemoteName(t *testing.T) {
 				service = git.NewBranchServiceWithClient(mockClient, "origin")
 			}
 
-			branches, err := service.GetAllBranches()
+			branches, err := service.GetBranchesWithTrackedRemotes()
 			require.NoError(t, err)
 
 			tt.validate(t, branches, tt.remoteName)
@@ -638,6 +664,14 @@ func TestBranchService_RemoteBranchDeletion(t *testing.T) {
 func TestBranchService_EdgeCases(t *testing.T) {
 	t.Run("remote branch name cleaning", func(t *testing.T) {
 		mockClient := mocks.NewMockedGitClient()
+		// Add local branch first so remote will be included
+		mockClient.AddBranch(mocks.BranchData{
+			Name:       "feature/remote-test",
+			IsRemote:   false,
+			AuthorName: "Local User",
+			CommitSHA:  "local123",
+		})
+		// Add corresponding remote branch
 		mockClient.AddBranch(mocks.BranchData{
 			Name:       "feature/remote-test",
 			IsRemote:   true,
@@ -648,7 +682,7 @@ func TestBranchService_EdgeCases(t *testing.T) {
 
 		service := git.NewBranchServiceWithClient(mockClient, "origin")
 
-		branches, err := service.GetAllBranches()
+		branches, err := service.GetBranchesWithTrackedRemotes()
 
 		require.NoError(t, err)
 

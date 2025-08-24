@@ -10,7 +10,7 @@ import (
 type BranchService interface {
 	GetCurrentBranch() (*Branch, error)
 	GetMergedBranches(baseBranch string) ([]Branch, error)
-	GetAllBranches() ([]Branch, error)
+	GetBranchesWithTrackedRemotes() ([]Branch, error)
 	GetBranchByName(branchName string) (*Branch, error)
 	DeleteBranch(branch *Branch) error
 	IsProtectedBranch(branch *Branch, patterns []string) bool
@@ -79,23 +79,56 @@ func (s *DefaultBranchService) GetMergedBranches(baseBranch string) ([]Branch, e
 	return branches, nil
 }
 
-func (s *DefaultBranchService) GetAllBranches() ([]Branch, error) {
+func (s *DefaultBranchService) GetBranchesWithTrackedRemotes() ([]Branch, error) {
 	branchNames, err := s.Client.getAllBranchNames()
 	if err != nil {
 		return nil, err
 	}
 
-	var branches []Branch
+	var localBranches []string
+	var remoteBranches []string
+	localBranchSet := make(map[string]bool)
+
+	remoteName := s.RemoteName
+	if remoteName == "" {
+		remoteName = "origin"
+	}
+
 	for _, name := range branchNames {
 		if name == "origin/HEAD" {
 			continue
 		}
 
+		if strings.HasPrefix(name, "remotes/"+remoteName+"/") {
+			remoteBranches = append(remoteBranches, name)
+		} else {
+			localBranches = append(localBranches, name)
+			localBranchSet[name] = true
+		}
+	}
+
+	var branches []Branch
+
+	for _, name := range localBranches {
 		branch, err := s.createBranchFromName(name)
 		if err != nil {
 			continue
 		}
 		branches = append(branches, *branch)
+	}
+
+	for _, remoteName := range remoteBranches {
+		branchName := strings.TrimPrefix(remoteName, "remotes/"+s.RemoteName+"/")
+		if s.RemoteName == "" {
+			branchName = strings.TrimPrefix(remoteName, "remotes/origin/")
+		}
+		if localBranchSet[branchName] {
+			branch, err := s.createBranchFromName(remoteName)
+			if err != nil {
+				continue
+			}
+			branches = append(branches, *branch)
+		}
 	}
 
 	return branches, nil
@@ -223,23 +256,57 @@ func (s *TestableBranchService) GetMergedBranches(baseBranch string) ([]Branch, 
 	return branches, nil
 }
 
-func (s *TestableBranchService) GetAllBranches() ([]Branch, error) {
+func (s *TestableBranchService) GetBranchesWithTrackedRemotes() ([]Branch, error) {
 	branchNames, err := s.client.GetAllBranchNames()
 	if err != nil {
 		return nil, err
 	}
 
-	var branches []Branch
+	var localBranches []string
+	var remoteBranches []string
+	localBranchSet := make(map[string]bool)
+
+	remoteName := s.RemoteName
+	if remoteName == "" {
+		remoteName = "origin"
+	}
+
 	for _, name := range branchNames {
 		if name == "origin/HEAD" {
 			continue
 		}
 
+		if strings.HasPrefix(name, "remotes/"+remoteName+"/") {
+			remoteBranches = append(remoteBranches, name)
+		} else {
+			localBranches = append(localBranches, name)
+			localBranchSet[name] = true
+		}
+	}
+
+	var branches []Branch
+
+	for _, name := range localBranches {
 		branch, err := s.createBranchFromName(name)
 		if err != nil {
 			continue
 		}
 		branches = append(branches, *branch)
+	}
+
+	for _, remoteName := range remoteBranches {
+		branchName := strings.TrimPrefix(remoteName, "remotes/"+s.RemoteName+"/")
+		if s.RemoteName == "" {
+			branchName = strings.TrimPrefix(remoteName, "remotes/origin/")
+		}
+
+		if localBranchSet[branchName] {
+			branch, err := s.createBranchFromName(remoteName)
+			if err != nil {
+				continue
+			}
+			branches = append(branches, *branch)
+		}
 	}
 
 	return branches, nil

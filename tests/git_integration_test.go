@@ -30,8 +30,8 @@ func TestBranchService(t *testing.T) {
 	assert.True(t, branchService.IsProtectedBranch(mainBranch, patterns))
 	assert.False(t, branchService.IsProtectedBranch(featureBranch, patterns))
 
-	// Test getting all branches
-	branches, err := branchService.GetAllBranches()
+	// Test getting branches with tracked remotes
+	branches, err := branchService.GetBranchesWithTrackedRemotes()
 	assert.NoError(t, err)
 	assert.NotNil(t, branches)
 	assert.Greater(t, len(branches), 0)

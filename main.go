@@ -134,7 +134,7 @@ func handleCleanCommand(args []string, configService config.Service) {
 		os.Exit(1)
 	}
 
-	branchService := git.NewBranchService()
+	branchService := git.NewBranchService(cfg.RemoteName)
 
 	var qualifyingBranches []*git.Branch
 	var totalProcessed int

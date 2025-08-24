@@ -6,13 +6,20 @@ import (
 	"time"
 )
 
+// DeleteRemoteBranchCall tracks calls to DeleteRemoteBranch for testing
+type DeleteRemoteBranchCall struct {
+	Remote     string
+	BranchName string
+}
+
 // SophisticatedGitClient provides realistic git command simulation
 type SophisticatedGitClient struct {
-	currentBranch   string
-	branches        map[string]BranchData
-	remotes         map[string]string // branch -> remote
-	unpushedCommits map[string]int    // branch -> count
-	commandFailures map[string]error  // command -> error to return
+	currentBranch          string
+	branches               map[string]BranchData
+	remotes                map[string]string // branch -> remote
+	unpushedCommits        map[string]int    // branch -> count
+	commandFailures        map[string]error  // command -> error to return
+	deleteRemoteBranchCalls []DeleteRemoteBranchCall // Track delete remote branch calls
 }
 
 type BranchData struct {
@@ -26,7 +33,7 @@ type BranchData struct {
 	Remote      string
 }
 
-func NewSophisticatedGitClient() *SophisticatedGitClient {
+func NewMockedGitClient() *SophisticatedGitClient {
 	now := time.Now()
 	return &SophisticatedGitClient{
 		currentBranch: "main",
@@ -69,9 +76,10 @@ func NewSophisticatedGitClient() *SophisticatedGitClient {
 				Remote:      "origin",
 			},
 		},
-		remotes:         map[string]string{},
-		unpushedCommits: map[string]int{},
-		commandFailures: map[string]error{},
+		remotes:                 map[string]string{},
+		unpushedCommits:         map[string]int{},
+		commandFailures:         map[string]error{},
+		deleteRemoteBranchCalls: []DeleteRemoteBranchCall{},
 	}
 }
 
@@ -94,6 +102,11 @@ func (m *SophisticatedGitClient) SetUnpushedCommits(branch string, count int) {
 
 func (m *SophisticatedGitClient) SetCommandFailure(command string, err error) {
 	m.commandFailures[command] = err
+}
+
+// GetDeleteRemoteBranchCalls returns all tracked DeleteRemoteBranch calls for testing
+func (m *SophisticatedGitClient) GetDeleteRemoteBranchCalls() []DeleteRemoteBranchCall {
+	return m.deleteRemoteBranchCalls
 }
 
 // GitClient interface implementation
@@ -139,8 +152,23 @@ func (m *SophisticatedGitClient) GetMergedBranchNames(baseBranch string) ([]stri
 
 	var merged []string
 	for name, data := range m.branches {
-		if data.IsMerged && name != baseBranch && !data.IsRemote {
-			merged = append(merged, name)
+		if data.IsMerged && name != baseBranch {
+			// Include both local and remote merged branches
+			if data.IsRemote {
+				// Use the actual remote name from the branch data, or fallback to "origin"
+				remoteName := data.Remote
+				if remoteName == "" {
+					remoteName = "origin"
+				}
+				// If the branch name already includes the remote prefix, use it as-is
+				if strings.HasPrefix(name, remoteName+"/") {
+					merged = append(merged, name)
+				} else {
+					merged = append(merged, remoteName+"/"+name)
+				}
+			} else {
+				merged = append(merged, name)
+			}
 		}
 	}
 	return merged, nil
@@ -154,7 +182,17 @@ func (m *SophisticatedGitClient) GetAllBranchNames() ([]string, error) {
 	var all []string
 	for _, data := range m.branches {
 		if data.IsRemote {
-			all = append(all, "origin/"+data.Name)
+			// Use the actual remote name from the branch data, or fallback to "origin"
+			remoteName := data.Remote
+			if remoteName == "" {
+				remoteName = "origin"
+			}
+			// If the branch name already includes the remote prefix, use it as-is
+			if strings.HasPrefix(data.Name, remoteName+"/") {
+				all = append(all, data.Name)
+			} else {
+				all = append(all, remoteName+"/"+data.Name)
+			}
 		} else {
 			all = append(all, data.Name)
 		}
@@ -167,7 +205,32 @@ func (m *SophisticatedGitClient) GetBranchCommitInfo(branchName string) (string,
 		return "", err
 	}
 
+	// Try to find the branch by name, handling remote branch name variations
 	data, exists := m.branches[branchName]
+	if !exists {
+		// For remote branches, try to find by the base name without remote prefix
+		for storedName, storedData := range m.branches {
+			if storedData.IsRemote {
+				remoteName := storedData.Remote
+				if remoteName == "" {
+					remoteName = "origin"
+				}
+				// If the requested branch name matches the full remote name
+				if branchName == storedName {
+					data = storedData
+					exists = true
+					break
+				}
+				// If the requested branch name is the remote/branch format and stored name is just the branch
+				if branchName == remoteName+"/"+storedName {
+					data = storedData
+					exists = true
+					break
+				}
+			}
+		}
+	}
+	
 	if !exists {
 		return "", fmt.Errorf("branch %s not found", branchName)
 	}
@@ -197,6 +260,12 @@ func (m *SophisticatedGitClient) DeleteRemoteBranch(remote, branchName string) e
 	if err, exists := m.commandFailures["DeleteRemoteBranch"]; exists {
 		return err
 	}
+
+	// Track the call for testing
+	m.deleteRemoteBranchCalls = append(m.deleteRemoteBranchCalls, DeleteRemoteBranchCall{
+		Remote:     remote,
+		BranchName: branchName,
+	})
 
 	key := remote + "/" + branchName
 	delete(m.branches, key)

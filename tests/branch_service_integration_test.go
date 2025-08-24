@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"clean-git/internal/config"
 	"clean-git/internal/git"
 	"clean-git/tests/mocks"
 
@@ -48,11 +49,11 @@ func TestBranchService_GetCurrentBranch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
+			mockClient := mocks.NewMockedGitClient()
 			mockClient.SetCurrentBranch(tt.currentBranch)
 			tt.setupMock(mockClient)
 
-			service := git.NewBranchServiceWithClient(mockClient)
+			service := git.NewBranchServiceWithClient(mockClient, "origin")
 
 			branch, err := service.GetCurrentBranch()
 
@@ -125,10 +126,10 @@ func TestBranchService_GetMergedBranches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
+			mockClient := mocks.NewMockedGitClient()
 			tt.setupMock(mockClient)
 
-			service := git.NewBranchServiceWithClient(mockClient)
+			service := git.NewBranchServiceWithClient(mockClient, "origin")
 
 			branches, err := service.GetMergedBranches(tt.baseBranch)
 
@@ -202,10 +203,10 @@ func TestBranchService_GetAllBranches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
+			mockClient := mocks.NewMockedGitClient()
 			tt.setupMock(mockClient)
 
-			service := git.NewBranchServiceWithClient(mockClient)
+			service := git.NewBranchServiceWithClient(mockClient, "origin")
 
 			branches, err := service.GetAllBranches()
 
@@ -287,7 +288,7 @@ func TestBranchService_DeleteBranch(t *testing.T) {
 			},
 			setupMock:     func(m *mocks.SophisticatedGitClient) {},
 			expectedError: true,
-			errorContains: "no remote configured",
+			errorContains: "remote name not configured",
 		},
 		{
 			name: "git delete command fails",
@@ -305,10 +306,15 @@ func TestBranchService_DeleteBranch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
+			mockClient := mocks.NewMockedGitClient()
 			tt.setupMock(mockClient)
 
-			service := git.NewBranchServiceWithClient(mockClient)
+			var service git.BranchService
+			if tt.expectedError {
+				service = git.NewBranchServiceWithClient(mockClient, "") // Empty remote name to trigger error
+			} else {
+				service = git.NewBranchServiceWithClient(mockClient, "origin")
+			}
 
 			err := service.DeleteBranch(tt.branch)
 
@@ -377,8 +383,8 @@ func TestBranchService_IsProtectedBranch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
-			service := git.NewBranchServiceWithClient(mockClient)
+			mockClient := mocks.NewMockedGitClient()
+			service := git.NewBranchServiceWithClient(mockClient, "origin")
 
 			result := service.IsProtectedBranch(tt.branch, tt.patterns)
 
@@ -448,10 +454,10 @@ func TestBranchService_GetBranchByName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
+			mockClient := mocks.NewMockedGitClient()
 			tt.setupMock(mockClient)
 
-			service := git.NewBranchServiceWithClient(mockClient)
+			service := git.NewBranchServiceWithClient(mockClient, "origin")
 
 			branch, err := service.GetBranchByName(tt.branchName)
 
@@ -470,9 +476,172 @@ func TestBranchService_GetBranchByName(t *testing.T) {
 	}
 }
 
+func TestBranchService_ConfigurableRemoteName(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteName string
+		setupMock  func(*mocks.SophisticatedGitClient, string)
+		validate   func(*testing.T, []git.Branch, string)
+	}{
+		{
+			name:       "uses custom remote name for branch creation",
+			remoteName: "upstream",
+			setupMock: func(m *mocks.SophisticatedGitClient, remote string) {
+				m.AddBranch(mocks.BranchData{
+					Name:       remote + "/feature/custom-remote", // Full remote branch name
+					IsRemote:   true,
+					Remote:     remote,
+					AuthorName: "Remote User",
+					CommitSHA:  "remote123",
+				})
+			},
+			validate: func(t *testing.T, branches []git.Branch, remoteName string) {
+				var remoteBranch *git.Branch
+				for _, branch := range branches {
+					if branch.IsRemote && branch.Name == "feature/custom-remote" {
+						remoteBranch = &branch
+						break
+					}
+				}
+				require.NotNil(t, remoteBranch, "Remote branch should be found")
+				assert.Equal(t, remoteName, remoteBranch.Remote)
+			},
+		},
+		{
+			name:       "uses origin as default when empty remote name",
+			remoteName: "",
+			setupMock: func(m *mocks.SophisticatedGitClient, remote string) {
+				m.AddBranch(mocks.BranchData{
+					Name:       "origin/feature/fallback", // Full remote branch name
+					IsRemote:   true,
+					Remote:     "origin",
+					AuthorName: "Fallback User",
+					CommitSHA:  "fallback123",
+				})
+			},
+			validate: func(t *testing.T, branches []git.Branch, remoteName string) {
+				var remoteBranch *git.Branch
+				for _, branch := range branches {
+					if branch.IsRemote && branch.Name == "feature/fallback" {
+						remoteBranch = &branch
+						break
+					}
+				}
+				require.NotNil(t, remoteBranch, "Remote branch should be found")
+				assert.Equal(t, "origin", remoteBranch.Remote) // Should be origin as fallback
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := mocks.NewMockedGitClient()
+			mockClient.ClearBranches() // Clear default branches first
+			tt.setupMock(mockClient, tt.remoteName)
+
+			var service git.BranchService
+			if tt.remoteName != "" {
+				service = git.NewBranchServiceWithClient(mockClient, tt.remoteName)
+			} else {
+				service = git.NewBranchServiceWithClient(mockClient, "origin")
+			}
+
+			branches, err := service.GetAllBranches()
+			require.NoError(t, err)
+
+			tt.validate(t, branches, tt.remoteName)
+		})
+	}
+}
+
+func TestBranchService_RemoteBranchDeletion(t *testing.T) {
+	tests := []struct {
+		name          string
+		branch        *git.Branch
+		config        *config.Config
+		expectedError bool
+		validateCall  func(*testing.T, *mocks.SophisticatedGitClient)
+	}{
+		{
+			name: "sets remote name from config when branch.Remote is empty",
+			branch: &git.Branch{
+				Name:     "feature/no-remote",
+				IsRemote: true,
+				Remote:   "", // Empty remote
+			},
+			config: &config.Config{
+				RemoteName: "upstream",
+			},
+			expectedError: false,
+			validateCall: func(t *testing.T, m *mocks.SophisticatedGitClient) {
+				// Verify that DeleteRemoteBranch was called with "upstream"
+				calls := m.GetDeleteRemoteBranchCalls()
+				require.Len(t, calls, 1)
+				assert.Equal(t, "upstream", calls[0].Remote)
+				assert.Equal(t, "feature/no-remote", calls[0].BranchName)
+			},
+		},
+		{
+			name: "uses existing remote name when already set",
+			branch: &git.Branch{
+				Name:     "feature/has-remote",
+				IsRemote: true,
+				Remote:   "origin", // Already has remote
+			},
+			config: &config.Config{
+				RemoteName: "upstream",
+			},
+			expectedError: false,
+			validateCall: func(t *testing.T, m *mocks.SophisticatedGitClient) {
+				// Should use existing "origin", not config "upstream"
+				calls := m.GetDeleteRemoteBranchCalls()
+				require.Len(t, calls, 1)
+				assert.Equal(t, "origin", calls[0].Remote)
+			},
+		},
+		{
+			name: "remote branch without remote configured",
+			branch: &git.Branch{
+				Name:     "feature/no-config",
+				IsRemote: true,
+				Remote:   "", // Empty remote
+			},
+			config:        &config.Config{RemoteName: ""}, // Empty remote name
+			expectedError: true,
+			validateCall: func(t *testing.T, m *mocks.SophisticatedGitClient) {
+				// Should not call delete since it should error
+				calls := m.GetDeleteRemoteBranchCalls()
+				require.Len(t, calls, 0)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := mocks.NewMockedGitClient()
+
+			var service git.BranchService
+			if tt.config != nil {
+				service = git.NewBranchServiceWithClient(mockClient, tt.config.RemoteName)
+			} else {
+				service = git.NewBranchServiceWithClient(mockClient, "origin")
+			}
+
+			err := service.DeleteBranch(tt.branch)
+
+			if tt.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				tt.validateCall(t, mockClient)
+			}
+		})
+	}
+}
+
 func TestBranchService_EdgeCases(t *testing.T) {
 	t.Run("remote branch name cleaning", func(t *testing.T) {
-		mockClient := mocks.NewSophisticatedGitClient()
+		mockClient := mocks.NewMockedGitClient()
 		mockClient.AddBranch(mocks.BranchData{
 			Name:       "feature/remote-test",
 			IsRemote:   true,
@@ -481,7 +650,8 @@ func TestBranchService_EdgeCases(t *testing.T) {
 			CommitSHA:  "remote123",
 		})
 
-		service := git.NewBranchServiceWithClient(mockClient)
+		service := git.NewBranchServiceWithClient(mockClient, "origin")
+
 		branches, err := service.GetAllBranches()
 
 		require.NoError(t, err)
@@ -503,7 +673,7 @@ func TestBranchService_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("branch with special characters", func(t *testing.T) {
-		mockClient := mocks.NewSophisticatedGitClient()
+		mockClient := mocks.NewMockedGitClient()
 		specialBranchName := "feature/fix-issue-#123_with-special.chars"
 		mockClient.AddBranch(mocks.BranchData{
 			Name:       specialBranchName,
@@ -511,7 +681,8 @@ func TestBranchService_EdgeCases(t *testing.T) {
 			CommitSHA:  "special123",
 		})
 
-		service := git.NewBranchServiceWithClient(mockClient)
+		service := git.NewBranchServiceWithClient(mockClient, "origin")
+
 		branch, err := service.GetBranchByName(specialBranchName)
 
 		require.NoError(t, err)
@@ -519,7 +690,7 @@ func TestBranchService_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("very old branch", func(t *testing.T) {
-		mockClient := mocks.NewSophisticatedGitClient()
+		mockClient := mocks.NewMockedGitClient()
 		oldDate := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 		mockClient.AddBranch(mocks.BranchData{
 			Name:       "feature/very-old",
@@ -528,7 +699,8 @@ func TestBranchService_EdgeCases(t *testing.T) {
 			CommitSHA:  "old123",
 		})
 
-		service := git.NewBranchServiceWithClient(mockClient)
+		service := git.NewBranchServiceWithClient(mockClient, "origin")
+
 		branch, err := service.GetBranchByName("feature/very-old")
 
 		require.NoError(t, err)

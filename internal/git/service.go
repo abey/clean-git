@@ -27,19 +27,27 @@ type TestableGitClient interface {
 }
 
 type DefaultBranchService struct {
-	Client gitClient
+	Client     gitClient
+	RemoteName string
 }
 
-func NewBranchService() BranchService {
-	return &DefaultBranchService{Client: newGitClient()}
+func NewBranchService(remoteName string) BranchService {
+	return &DefaultBranchService{
+		Client:     newGitClient(),
+		RemoteName: remoteName,
+	}
 }
 
-func NewBranchServiceWithClient(client TestableGitClient) BranchService {
-	return &TestableBranchService{client: client}
+func NewBranchServiceWithClient(client TestableGitClient, remoteName string) BranchService {
+	return &TestableBranchService{
+		client:     client,
+		RemoteName: remoteName,
+	}
 }
 
 type TestableBranchService struct {
-	client TestableGitClient
+	client     TestableGitClient
+	RemoteName string
 }
 
 func (s *DefaultBranchService) GetCurrentBranch() (*Branch, error) {
@@ -98,7 +106,11 @@ func (s *DefaultBranchService) GetBranchByName(branchName string) (*Branch, erro
 func (s *DefaultBranchService) DeleteBranch(branch *Branch) error {
 	if branch.IsRemote {
 		if branch.Remote == "" {
-			return fmt.Errorf("remote branch %s has no remote configured", branch.Name)
+			if s.RemoteName != "" {
+				branch.Remote = s.RemoteName
+			} else {
+				return fmt.Errorf("remote name not configured and branch has no remote specified")
+			}
 		}
 		return s.Client.deleteRemoteBranch(branch.Remote, branch.Name)
 	}
@@ -119,18 +131,28 @@ func (s *DefaultBranchService) IsProtectedBranch(branch *Branch, patterns []stri
 }
 
 func (s *DefaultBranchService) createBranchFromName(branchName string) (*Branch, error) {
-	isRemote := strings.HasPrefix(branchName, "origin/")
+	remoteName := "origin"
+	if s.RemoteName != "" {
+		remoteName = s.RemoteName
+	}
+
+	isRemote := strings.HasPrefix(branchName, remoteName+"/")
 	actualName := branchName
 	remote := ""
 
 	if isRemote {
-		actualName = strings.TrimPrefix(branchName, "origin/")
-		remote = "origin"
+		actualName = strings.TrimPrefix(branchName, remoteName+"/")
+		remote = remoteName
 	}
 
-	commitInfo, err := s.Client.getBranchCommitInfo(actualName)
+	branchNameForCommitInfo := actualName
+	if isRemote {
+		branchNameForCommitInfo = branchName
+	}
+
+	commitInfo, err := s.Client.getBranchCommitInfo(branchNameForCommitInfo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get commit info for branch %s: %w", actualName, err)
+		return nil, fmt.Errorf("failed to get commit info for branch %s: %w", branchNameForCommitInfo, err)
 	}
 
 	parts := strings.Split(commitInfo, "|")
@@ -224,7 +246,11 @@ func (s *TestableBranchService) GetBranchByName(branchName string) (*Branch, err
 func (s *TestableBranchService) DeleteBranch(branch *Branch) error {
 	if branch.IsRemote {
 		if branch.Remote == "" {
-			return fmt.Errorf("remote branch %s has no remote configured", branch.Name)
+			if s.RemoteName != "" {
+				branch.Remote = s.RemoteName
+			} else {
+				return fmt.Errorf("remote name not configured and branch has no remote specified")
+			}
 		}
 		return s.client.DeleteRemoteBranch(branch.Remote, branch.Name)
 	}
@@ -245,18 +271,28 @@ func (s *TestableBranchService) IsProtectedBranch(branch *Branch, patterns []str
 }
 
 func (s *TestableBranchService) createBranchFromName(branchName string) (*Branch, error) {
-	isRemote := strings.HasPrefix(branchName, "origin/")
+	remoteName := "origin"
+	if s.RemoteName != "" {
+		remoteName = s.RemoteName
+	}
+
+	isRemote := strings.HasPrefix(branchName, remoteName+"/")
 	actualName := branchName
 	remote := ""
 
 	if isRemote {
-		actualName = strings.TrimPrefix(branchName, "origin/")
-		remote = "origin"
+		actualName = strings.TrimPrefix(branchName, remoteName+"/")
+		remote = remoteName
 	}
 
-	commitInfo, err := s.client.GetBranchCommitInfo(actualName)
+	branchNameForCommitInfo := actualName
+	if isRemote {
+		branchNameForCommitInfo = branchName
+	}
+
+	commitInfo, err := s.client.GetBranchCommitInfo(branchNameForCommitInfo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get commit info for branch %s: %w", actualName, err)
+		return nil, fmt.Errorf("failed to get commit info for branch %s: %w", branchNameForCommitInfo, err)
 	}
 
 	parts := strings.Split(commitInfo, "|")

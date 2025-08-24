@@ -10,7 +10,7 @@ import (
 
 func TestBranchService(t *testing.T) {
 	// Test with real git operations (since low-level client is now private)
-	branchService := git.NewBranchService()
+	branchService := git.NewBranchService("origin")
 
 	// Test that we can create a branch service
 	assert.NotNil(t, branchService)
@@ -45,7 +45,7 @@ func TestBranchService(t *testing.T) {
 }
 
 func TestVisibilityConstraints(t *testing.T) {
-	branchService := git.NewBranchService()
+	branchService := git.NewBranchService("origin")
 	assert.NotNil(t, branchService)
 
 	t.Log("✅ Visibility constraints are properly enforced")

@@ -55,7 +55,7 @@ func TestGitClient_GetCurrentBranchName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
+			mockClient := mocks.NewMockedGitClient()
 			if tt.currentBranch != "" {
 				mockClient.SetCurrentBranch(tt.currentBranch)
 			}
@@ -125,7 +125,7 @@ func TestGitClient_GetMergedBranchNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
+			mockClient := mocks.NewMockedGitClient()
 			tt.setupMock(mockClient)
 
 			result, err := mockClient.GetMergedBranchNames(tt.baseBranch)
@@ -183,7 +183,7 @@ func TestGitClient_GetAllBranchNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
+			mockClient := mocks.NewMockedGitClient()
 			tt.setupMock(mockClient)
 
 			result, err := mockClient.GetAllBranchNames()
@@ -264,7 +264,7 @@ func TestGitClient_GetBranchCommitInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
+			mockClient := mocks.NewMockedGitClient()
 			tt.setupMock(mockClient)
 
 			result, err := mockClient.GetBranchCommitInfo(tt.branchName)
@@ -329,7 +329,7 @@ func TestGitClient_HasUnpushedCommits(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockClient := mocks.NewSophisticatedGitClient()
+			mockClient := mocks.NewMockedGitClient()
 			tt.setupMock(mockClient)
 
 			result, err := mockClient.HasUnpushedCommits(tt.branchName)
@@ -382,7 +382,7 @@ func TestGitClient_DeleteBranches(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				mockClient := mocks.NewSophisticatedGitClient()
+				mockClient := mocks.NewMockedGitClient()
 				tt.setupMock(mockClient)
 
 				err := mockClient.DeleteLocalBranch(tt.branchName)
@@ -439,7 +439,7 @@ func TestGitClient_DeleteBranches(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				mockClient := mocks.NewSophisticatedGitClient()
+				mockClient := mocks.NewMockedGitClient()
 				tt.setupMock(mockClient)
 
 				err := mockClient.DeleteRemoteBranch(tt.remote, tt.branchName)
@@ -459,7 +459,7 @@ func TestGitClient_DeleteBranches(t *testing.T) {
 
 func TestGitClient_RawCommandExecution(t *testing.T) {
 	t.Run("run git commands", func(t *testing.T) {
-		mockClient := mocks.NewSophisticatedGitClient()
+		mockClient := mocks.NewMockedGitClient()
 
 		// Test basic command execution
 		output, err := mockClient.Run("branch", "--show-current")
@@ -473,7 +473,7 @@ func TestGitClient_RawCommandExecution(t *testing.T) {
 	})
 
 	t.Run("command failures", func(t *testing.T) {
-		mockClient := mocks.NewSophisticatedGitClient()
+		mockClient := mocks.NewMockedGitClient()
 		mockClient.SetCommandFailure("status --porcelain", errors.New("not a git repository"))
 
 		_, err := mockClient.Run("status", "--porcelain")

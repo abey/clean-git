@@ -156,7 +156,7 @@ func TestGitClient_GetAllBranchNames(t *testing.T) {
 				m.AddBranch(mocks.BranchData{Name: "feature/remote", IsRemote: true})
 			},
 			expectedLocal:  []string{"main", "feature/test", "feature/merged", "develop"},
-			expectedRemote: []string{"origin/main", "origin/feature/remote"},
+			expectedRemote: []string{"remotes/origin/main", "remotes/origin/feature/remote"},
 			expectedError:  false,
 		},
 		{
@@ -196,7 +196,7 @@ func TestGitClient_GetAllBranchNames(t *testing.T) {
 
 				var localBranches, remoteBranches []string
 				for _, branch := range result {
-					if strings.HasPrefix(branch, "origin/") {
+					if strings.HasPrefix(branch, "remotes/origin/") {
 						remoteBranches = append(remoteBranches, branch)
 					} else {
 						localBranches = append(localBranches, branch)

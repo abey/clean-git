@@ -65,7 +65,7 @@ func NewMockedGitClient() *SophisticatedGitClient {
 				IsMerged:    true,
 				IsRemote:    false,
 			},
-			"origin/main": {
+			"remotes/origin/main": {
 				Name:        "main",
 				CommitDate:  now,
 				AuthorName:  "John Doe",
@@ -93,7 +93,18 @@ func (m *SophisticatedGitClient) ClearBranches() {
 }
 
 func (m *SophisticatedGitClient) AddBranch(data BranchData) {
-	m.branches[data.Name] = data
+	if data.IsRemote {
+		// Store remote branches with the full remotes/origin/branchname format as key
+		remoteName := data.Remote
+		if remoteName == "" {
+			remoteName = "origin"
+		}
+		key := "remotes/" + remoteName + "/" + data.Name
+		m.branches[key] = data
+	} else {
+		// Store local branches with just the branch name as key
+		m.branches[data.Name] = data
+	}
 }
 
 func (m *SophisticatedGitClient) SetUnpushedCommits(branch string, count int) {
@@ -151,24 +162,12 @@ func (m *SophisticatedGitClient) GetMergedBranchNames(baseBranch string) ([]stri
 	}
 
 	var merged []string
-	for name, data := range m.branches {
-		if data.IsMerged && name != baseBranch {
-			// Include both local and remote merged branches
-			if data.IsRemote {
-				// Use the actual remote name from the branch data, or fallback to "origin"
-				remoteName := data.Remote
-				if remoteName == "" {
-					remoteName = "origin"
-				}
-				// If the branch name already includes the remote prefix, use it as-is
-				if strings.HasPrefix(name, remoteName+"/") {
-					merged = append(merged, name)
-				} else {
-					merged = append(merged, remoteName+"/"+name)
-				}
-			} else {
-				merged = append(merged, name)
-			}
+	for key, data := range m.branches {
+		if data.IsMerged && key != baseBranch {
+			// For both local and remote branches, use the key directly
+			// Remote branches are already stored with remotes/origin/ format
+			// Local branches are stored with just the branch name
+			merged = append(merged, key)
 		}
 	}
 	return merged, nil
@@ -180,21 +179,13 @@ func (m *SophisticatedGitClient) GetAllBranchNames() ([]string, error) {
 	}
 
 	var all []string
-	for _, data := range m.branches {
+	for key, data := range m.branches {
 		if data.IsRemote {
-			// Use the actual remote name from the branch data, or fallback to "origin"
-			remoteName := data.Remote
-			if remoteName == "" {
-				remoteName = "origin"
-			}
-			// If the branch name already includes the remote prefix, use it as-is
-			if strings.HasPrefix(data.Name, remoteName+"/") {
-				all = append(all, data.Name)
-			} else {
-				all = append(all, remoteName+"/"+data.Name)
-			}
+			// For remote branches, the key is already in remotes/origin/branchname format
+			all = append(all, key)
 		} else {
-			all = append(all, data.Name)
+			// For local branches, the key is just the branch name
+			all = append(all, key)
 		}
 	}
 	return all, nil
@@ -208,21 +199,27 @@ func (m *SophisticatedGitClient) GetBranchCommitInfo(branchName string) (string,
 	// Try to find the branch by name, handling remote branch name variations
 	data, exists := m.branches[branchName]
 	if !exists {
-		// For remote branches, try to find by the base name without remote prefix
+		// For remote branches, try different name formats
 		for storedName, storedData := range m.branches {
 			if storedData.IsRemote {
 				remoteName := storedData.Remote
 				if remoteName == "" {
 					remoteName = "origin"
 				}
-				// If the requested branch name matches the full remote name
+				// If the requested branch name matches the stored name exactly
 				if branchName == storedName {
 					data = storedData
 					exists = true
 					break
 				}
-				// If the requested branch name is the remote/branch format and stored name is just the branch
-				if branchName == remoteName+"/"+storedName {
+				// If requesting remotes/origin/branchname format, match against stored remotes/origin/branchname
+				if strings.HasPrefix(branchName, "remotes/"+remoteName+"/") && branchName == storedName {
+					data = storedData
+					exists = true
+					break
+				}
+				// If requesting just the branch name, match against remotes/origin/branchname stored format
+				if storedName == "remotes/"+remoteName+"/"+branchName {
 					data = storedData
 					exists = true
 					break

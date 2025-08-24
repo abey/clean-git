@@ -482,7 +482,7 @@ func TestBranchService_ConfigurableRemoteName(t *testing.T) {
 			remoteName: "upstream",
 			setupMock: func(m *mocks.SophisticatedGitClient, remote string) {
 				m.AddBranch(mocks.BranchData{
-					Name:       remote + "/feature/custom-remote", // Full remote branch name
+					Name:       "feature/custom-remote", // Just the branch name
 					IsRemote:   true,
 					Remote:     remote,
 					AuthorName: "Remote User",
@@ -506,7 +506,7 @@ func TestBranchService_ConfigurableRemoteName(t *testing.T) {
 			remoteName: "",
 			setupMock: func(m *mocks.SophisticatedGitClient, remote string) {
 				m.AddBranch(mocks.BranchData{
-					Name:       "origin/feature/fallback", // Full remote branch name
+					Name:       "feature/fallback", // Just the branch name
 					IsRemote:   true,
 					Remote:     "origin",
 					AuthorName: "Fallback User",

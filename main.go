@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"clean-git/internal/config"
+	"clean-git/internal/errors"
 	"clean-git/internal/git"
 )
 
 const (
 	Version     = "0.1.0"
-	Description = "A tool for cleaning up stale and merged branches in your repository and make you life easier."
+	Description = "A tool for cleaning up stale and merged branches in your repository and make your life easier."
 )
 
 var (
@@ -60,14 +61,12 @@ func main() {
 
 	repoRoot, err := config.FindGitRepoRoot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: Not in a Git repository: %v\n", err)
-		os.Exit(1)
+		errors.FatalError(errors.ExitGit, "Not in a Git repository: %v", err)
 	}
 
 	configService, err := config.NewService(repoRoot)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: Failed to initialize configuration service: %v\n", err)
-		os.Exit(1)
+		errors.FatalError(errors.ExitConfig, "Failed to initialize configuration service: %v", err)
 	}
 
 	subcmd := flag.Arg(0)
@@ -77,7 +76,7 @@ func main() {
 			return
 		}
 		flag.Usage()
-		os.Exit(1)
+		errors.FatalError(errors.ExitGeneral, "No command specified")
 	}
 
 	// Onboard repo if not onboarded
@@ -87,8 +86,7 @@ func main() {
 		fmt.Println("Let's set up the configuration to get started.")
 
 		if err := runInteractiveConfiguration(configService); err != nil {
-			fmt.Fprintf(os.Stderr, "Error during configuration setup: %v\n", err)
-			os.Exit(1)
+			errors.FatalError(errors.ExitConfig, "Configuration setup failed: %v", err)
 		}
 
 		fmt.Println("\nConfiguration complete! You can now use clean-git.")
@@ -103,7 +101,7 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "Error: Unknown command '%s'\n\n", subcmd)
 		flag.Usage()
-		os.Exit(1)
+		errors.FatalError(errors.ExitGeneral, "Unknown command '%s'", subcmd)
 	}
 }
 
@@ -124,14 +122,12 @@ func handleCleanCommand(args []string, configService config.Service) {
 	cleanFlags.Parse(args)
 
 	if !configService.IsOnboarded() {
-		fmt.Fprintf(os.Stderr, "Error: Repository not configured. Run 'clean-git config' first.\n")
-		os.Exit(1)
+		errors.FatalError(errors.ExitConfig, "Repository not configured. Run 'clean-git config' first")
 	}
 
 	cfg := configService.Config()
 	if cfg == nil {
-		fmt.Fprintf(os.Stderr, "Error: Failed to load configuration.\n")
-		os.Exit(1)
+		errors.FatalError(errors.ExitConfig, "Failed to load configuration")
 	}
 
 	branchService := git.NewBranchService(cfg.RemoteName)
@@ -318,8 +314,7 @@ func handleConfigCommand(args []string, configService config.Service) {
 	configFlags.Parse(args)
 
 	if err := runInteractiveConfiguration(configService); err != nil {
-		fmt.Fprintf(os.Stderr, "Error during configuration: %v\n", err)
-		os.Exit(1)
+		errors.FatalError(errors.ExitConfig, "Configuration failed: %v", err)
 	}
 
 	fmt.Println("\nConfiguration updated successfully!")

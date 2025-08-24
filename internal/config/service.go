@@ -8,10 +8,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	ConfigDir        = ".clean-git/configs"
-	GlobalConfigFile = "global.yaml"
-)
 
 type repoConfigService struct {
 	repoRoot   string

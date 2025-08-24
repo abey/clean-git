@@ -280,15 +280,14 @@ func TestBranchService_DeleteBranch(t *testing.T) {
 			errorContains: "cannot delete current branch",
 		},
 		{
-			name: "remote branch without remote configured",
+			name: "remote branch without remote configured uses fallback",
 			branch: &git.Branch{
 				Name:     "feature/no-remote",
 				IsRemote: true,
-				Remote:   "", // No remote configured
+				Remote:   "", // No remote configured - should use service's remote name as fallback
 			},
 			setupMock:     func(m *mocks.SophisticatedGitClient) {},
-			expectedError: true,
-			errorContains: "remote name not configured",
+			expectedError: false, // Should succeed with fallback to service's remote name
 		},
 		{
 			name: "git delete command fails",
@@ -309,12 +308,7 @@ func TestBranchService_DeleteBranch(t *testing.T) {
 			mockClient := mocks.NewMockedGitClient()
 			tt.setupMock(mockClient)
 
-			var service git.BranchService
-			if tt.expectedError {
-				service = git.NewBranchServiceWithClient(mockClient, "") // Empty remote name to trigger error
-			} else {
-				service = git.NewBranchServiceWithClient(mockClient, "origin")
-			}
+			service := git.NewBranchServiceWithClient(mockClient, "origin")
 
 			err := service.DeleteBranch(tt.branch)
 
@@ -600,18 +594,20 @@ func TestBranchService_RemoteBranchDeletion(t *testing.T) {
 			},
 		},
 		{
-			name: "remote branch without remote configured",
+			name: "remote branch without remote configured uses origin fallback",
 			branch: &git.Branch{
 				Name:     "feature/no-config",
 				IsRemote: true,
 				Remote:   "", // Empty remote
 			},
-			config:        &config.Config{RemoteName: ""}, // Empty remote name
-			expectedError: true,
+			config:        &config.Config{RemoteName: ""}, // Empty remote name - should fallback to "origin"
+			expectedError: false,
 			validateCall: func(t *testing.T, m *mocks.SophisticatedGitClient) {
-				// Should not call delete since it should error
+				// Should call delete with "origin" as fallback
 				calls := m.GetDeleteRemoteBranchCalls()
-				require.Len(t, calls, 0)
+				require.Len(t, calls, 1)
+				assert.Equal(t, "origin", calls[0].Remote) // Should use "origin" as fallback
+				assert.Equal(t, "feature/no-config", calls[0].BranchName)
 			},
 		},
 	}

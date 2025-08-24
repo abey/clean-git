@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Subcommands:\n")
 		fmt.Fprintf(os.Stderr, "  clean     Clean up stale and merged branches\n")
 		fmt.Fprintf(os.Stderr, "  config    Setup or update configuration\n")
+		fmt.Fprintf(os.Stderr, "  list      List all branches with merge status information\n")
 		fmt.Fprintf(os.Stderr, "\nGlobal Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nRun '%s COMMAND -h' for subcommand options.\n", os.Args[0])
@@ -96,6 +98,8 @@ func main() {
 	switch subcmd {
 	case "clean":
 		handleCleanCommand(flag.Args()[1:], configService)
+	case "list":
+		handleListCommand(flag.Args()[1:], configService)
 	case "config":
 		handleConfigCommand(flag.Args()[1:], configService)
 	default:
@@ -106,7 +110,6 @@ func main() {
 }
 
 func handleCleanCommand(args []string, configService config.Service) {
-	// Parse subcommand flags
 	cleanFlags := flag.NewFlagSet("clean", flag.ExitOnError)
 	localOnly := cleanFlags.Bool("local-only", false, "Only clean local branches")
 	remoteOnly := cleanFlags.Bool("remote-only", false, "Only clean remote branches")
@@ -311,6 +314,215 @@ func handleCleanCommand(args []string, configService config.Service) {
 	}
 
 	fmt.Printf("\nProcessed %d total merged branch(es) across %d base branch(es).\n", totalProcessed, len(cfg.BaseBranches))
+}
+
+func handleListCommand(args []string, configService config.Service) {
+	listFlags := flag.NewFlagSet("list", flag.ExitOnError)
+	localOnly := listFlags.Bool("local-only", false, "Only show local branches")
+	remoteOnly := listFlags.Bool("remote-only", false, "Only show remote branches")
+
+	listFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s list [OPTIONS]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "List all branches with status information.\n\n")
+		fmt.Fprintf(os.Stderr, "Shows branch name, current status, remote status, merge status, and last commit time.\n")
+		fmt.Fprintf(os.Stderr, "Branches are sorted by most recent commit first.\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		listFlags.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nGlobal options like --verbose are also available.\n")
+	}
+
+	listFlags.Parse(args)
+
+	// Ensure repository is configured - reusing existing validation pattern
+	if !configService.IsOnboarded() {
+		errors.FatalError(errors.ExitConfig, "Repository not configured. Run 'clean-git config' first")
+	}
+
+	cfg := configService.Config()
+	if cfg == nil {
+		errors.FatalError(errors.ExitConfig, "Failed to load configuration")
+	}
+
+	// Initialize BranchService using existing pattern from handleCleanCommand
+	branchService := git.NewBranchService(cfg.RemoteName)
+
+	// Get all branches using existing service method
+	allBranches, err := branchService.GetAllBranches()
+	if err != nil {
+		errors.FatalError(errors.ExitGit, "Failed to get branches: %v", err)
+	}
+
+	if *verbose {
+		fmt.Printf("Found %d total branches\n", len(allBranches))
+	}
+
+	// Create a map to track merged branches for each base branch
+	// Reusing existing GetMergedBranches method to determine merge status
+	mergedBranchMap := make(map[string]map[string]time.Time) // baseBranch -> branchName -> mergeTime
+
+	for _, baseBranch := range cfg.BaseBranches {
+		if *verbose {
+			fmt.Printf("Checking merged branches for base: %s\n", baseBranch)
+		}
+
+		// Check if base branch exists - reusing existing validation pattern
+		exists, err := branchService.BranchExists(baseBranch)
+		if err != nil {
+			if *verbose {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to check base branch %s: %v\n", baseBranch, err)
+			}
+			continue
+		}
+		if !exists {
+			if *verbose {
+				fmt.Printf("Base branch '%s' not found, skipping\n", baseBranch)
+			}
+			continue
+		}
+
+		// Get merged branches using existing service method
+		mergedBranches, err := branchService.GetMergedBranches(baseBranch)
+		if err != nil {
+			if *verbose {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to get merged branches for %s: %v\n", baseBranch, err)
+			}
+			continue
+		}
+
+		// Store merge information for display
+		if mergedBranchMap[baseBranch] == nil {
+			mergedBranchMap[baseBranch] = make(map[string]time.Time)
+		}
+		for _, branch := range mergedBranches {
+			mergedBranchMap[baseBranch][branch.Name] = branch.LastCommitAt
+		}
+	}
+
+	// Filter branches based on flags - following existing pattern
+	var filteredBranches []git.Branch
+	for _, branch := range allBranches {
+		if *localOnly && branch.IsRemote {
+			continue
+		}
+		if *remoteOnly && !branch.IsRemote {
+			continue
+		}
+		filteredBranches = append(filteredBranches, branch)
+	}
+
+	// Sort branches by LastCommitAt (most recent first)
+	sort.Slice(filteredBranches, func(i, j int) bool {
+		return filteredBranches[i].LastCommitAt.After(filteredBranches[j].LastCommitAt)
+	})
+
+	if len(filteredBranches) == 0 {
+		fmt.Println("No branches found.")
+		return
+	}
+
+	// Display header
+	fmt.Printf("\n=== Branch List (%d branches) ===\n", len(filteredBranches))
+	fmt.Printf("Sorted by most recent commit first\n\n")
+
+	// Display branches in a nice CLI format
+	for _, branch := range filteredBranches {
+		// Current branch indicator
+		currentIndicator := " "
+		if branch.IsCurrent {
+			currentIndicator = "*"
+		}
+
+		// Branch type indicator
+		branchType := "local"
+		if branch.IsRemote {
+			branchType = "remote"
+		}
+
+		// Determine merge status and which base branch it was merged into
+		mergeStatus := "not merged"
+		var mergeTime time.Time
+		var mergedInto string
+
+		for baseBranch, mergedBranches := range mergedBranchMap {
+			if mergeTimeForBranch, isMerged := mergedBranches[branch.Name]; isMerged {
+				mergeStatus = "merged"
+				mergeTime = mergeTimeForBranch
+				mergedInto = baseBranch
+				break
+			}
+		}
+
+		// Format last commit time
+		age := time.Since(branch.LastCommitAt)
+		ageStr := formatDuration(age)
+
+		// Remote tracking status for local branches
+		remoteInfo := ""
+		if !branch.IsRemote {
+			if branch.HasUnpushedCommits {
+				remoteInfo = " (unpushed)"
+			} else if branch.Remote != "" {
+				remoteInfo = fmt.Sprintf(" (tracks %s)", branch.Remote)
+			}
+		}
+
+		// Display branch information
+		fmt.Printf("%s %-30s %-8s %-12s last: %-12s",
+			currentIndicator,
+			branch.Name,
+			branchType,
+			mergeStatus,
+			ageStr+" ago")
+
+		if mergeStatus == "merged" && !mergeTime.IsZero() {
+			mergeAge := time.Since(mergeTime)
+			fmt.Printf(" merged: %-12s into %s", formatDuration(mergeAge)+" ago", mergedInto)
+		}
+
+		fmt.Printf("%s\n", remoteInfo)
+
+		// Verbose information - following existing verbose pattern
+		if *verbose {
+			fmt.Printf("    Author: %s (%s)\n", branch.AuthorUserName, branch.AuthorEmail)
+			fmt.Printf("    SHA: %s\n", branch.LastCommitSHA)
+			if branch.Remote != "" {
+				fmt.Printf("    Remote: %s\n", branch.Remote)
+			}
+		}
+	}
+
+	// Summary information
+	localCount := 0
+	remoteCount := 0
+	mergedCount := 0
+	currentBranchName := ""
+
+	for _, branch := range filteredBranches {
+		if branch.IsRemote {
+			remoteCount++
+		} else {
+			localCount++
+		}
+		if branch.IsCurrent {
+			currentBranchName = branch.Name
+		}
+
+		// Check if merged
+		for _, mergedBranches := range mergedBranchMap {
+			if _, isMerged := mergedBranches[branch.Name]; isMerged {
+				mergedCount++
+				break
+			}
+		}
+	}
+
+	fmt.Printf("\n=== Summary ===\n")
+	fmt.Printf("Total branches: %d\n", len(filteredBranches))
+	fmt.Printf("Local: %d, Remote: %d\n", localCount, remoteCount)
+	fmt.Printf("Merged: %d, Not merged: %d\n", mergedCount, len(filteredBranches)-mergedCount)
+	if currentBranchName != "" {
+		fmt.Printf("Current branch: %s\n", currentBranchName)
+	}
 }
 
 // ad-hoc config flow

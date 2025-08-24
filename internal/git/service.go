@@ -142,12 +142,12 @@ func (s *DefaultBranchService) createBranchFromName(branchName string) (*Branch,
 		remoteName = s.RemoteName
 	}
 
-	isRemote := strings.HasPrefix(branchName, remoteName+"/")
+	isRemote := strings.HasPrefix(branchName, "remotes/"+remoteName+"/")
 	actualName := branchName
 	remote := ""
 
 	if isRemote {
-		actualName = strings.TrimPrefix(branchName, remoteName+"/")
+		actualName = strings.TrimPrefix(branchName, "remotes/"+remoteName+"/")
 		remote = remoteName
 	}
 
@@ -286,12 +286,12 @@ func (s *TestableBranchService) createBranchFromName(branchName string) (*Branch
 		remoteName = s.RemoteName
 	}
 
-	isRemote := strings.HasPrefix(branchName, remoteName+"/")
+	isRemote := strings.HasPrefix(branchName, "remotes/"+remoteName+"/")
 	actualName := branchName
 	remote := ""
 
 	if isRemote {
-		actualName = strings.TrimPrefix(branchName, remoteName+"/")
+		actualName = strings.TrimPrefix(branchName, "remotes/"+remoteName+"/")
 		remote = remoteName
 	}
 

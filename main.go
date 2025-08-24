@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	configpkg "clean-git/internal/config"
+	"clean-git/internal/config"
+	"clean-git/internal/git"
 )
 
 const (
@@ -19,13 +20,13 @@ const (
 )
 
 var (
-	version = flag.Bool("version", false, "Print version information")
-	v       = flag.Bool("v", false, "Print version information (short)")
-	help    = flag.Bool("help", false, "Show help information")
-	h       = flag.Bool("h", false, "Show help information (short)")
-	dryRun  = flag.Bool("dry-run", false, "Show what would be done without actually doing it")
-	verbose = flag.Bool("verbose", false, "Enable verbose output")
-	config  = flag.Bool("config", false, "Show or update configuration")
+	version    = flag.Bool("version", false, "Print version information")
+	v          = flag.Bool("v", false, "Print version information (short)")
+	help       = flag.Bool("help", false, "Show help information")
+	h          = flag.Bool("h", false, "Show help information (short)")
+	dryRun     = flag.Bool("dry-run", false, "Show what would be done without actually doing it")
+	verbose    = flag.Bool("verbose", false, "Enable verbose output")
+	configFlag = flag.Bool("config", false, "Show or update configuration")
 )
 
 func main() {
@@ -57,13 +58,13 @@ func main() {
 
 	// Set up working directory
 
-	repoRoot, err := configpkg.FindGitRepoRoot()
+	repoRoot, err := config.FindGitRepoRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Not in a Git repository: %v\n", err)
 		os.Exit(1)
 	}
 
-	configService, err := configpkg.NewService(repoRoot)
+	configService, err := config.NewService(repoRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to initialize configuration service: %v\n", err)
 		os.Exit(1)
@@ -71,7 +72,7 @@ func main() {
 
 	subcmd := flag.Arg(0)
 	if subcmd == "" {
-		if *config {
+		if *configFlag {
 			handleConfigCommand(nil, configService)
 			return
 		}
@@ -96,7 +97,7 @@ func main() {
 
 	switch subcmd {
 	case "clean":
-		handleCleanCommand(flag.Args()[1:])
+		handleCleanCommand(flag.Args()[1:], configService)
 	case "config":
 		handleConfigCommand(flag.Args()[1:], configService)
 	default:
@@ -106,7 +107,8 @@ func main() {
 	}
 }
 
-func handleCleanCommand(args []string) {
+func handleCleanCommand(args []string, configService config.Service) {
+	// Parse subcommand flags
 	cleanFlags := flag.NewFlagSet("clean", flag.ExitOnError)
 	localOnly := cleanFlags.Bool("local-only", false, "Only clean local branches")
 	remoteOnly := cleanFlags.Bool("remote-only", false, "Only clean remote branches")
@@ -121,15 +123,188 @@ func handleCleanCommand(args []string) {
 
 	cleanFlags.Parse(args)
 
-	fmt.Println("Clean command executed with options:")
-	fmt.Printf("  Dry run: %v\n", *dryRun)
-	fmt.Printf("  Verbose: %v\n", *verbose)
-	fmt.Printf("  Local only: %v\n", *localOnly)
-	fmt.Printf("  Remote only: %v\n", *remoteOnly)
+	if !configService.IsOnboarded() {
+		fmt.Fprintf(os.Stderr, "Error: Repository not configured. Run 'clean-git config' first.\n")
+		os.Exit(1)
+	}
+
+	cfg := configService.Config()
+	if cfg == nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to load configuration.\n")
+		os.Exit(1)
+	}
+
+	branchService := git.NewBranchService()
+
+	var qualifyingBranches []*git.Branch
+	var totalProcessed int
+	var errors []string
+
+	for _, baseBranch := range cfg.BaseBranches {
+		if *verbose {
+			fmt.Printf("Processing base branch: %s\n", baseBranch)
+		}
+
+		mergedBranches, err := branchService.GetMergedBranches(baseBranch)
+		if err != nil {
+			errorMsg := fmt.Sprintf("Failed to get merged branches for %s: %v", baseBranch, err)
+			errors = append(errors, errorMsg)
+			if *verbose {
+				fmt.Fprintf(os.Stderr, "Warning: %s\n", errorMsg)
+			}
+			continue
+		}
+
+		totalProcessed += len(mergedBranches)
+
+		for _, branch := range mergedBranches {
+			if branch.IsCurrent {
+				if *verbose {
+					fmt.Printf("Skipping current branch: %s\n", branch.Name)
+				}
+				continue
+			}
+
+			age := time.Since(branch.LastCommitAt)
+			if age < cfg.MaxAge {
+				if *verbose {
+					fmt.Printf("Skipping branch %s: too recent (%s < %s)\n", branch.Name, formatDuration(age), formatDuration(cfg.MaxAge))
+				}
+				continue
+			}
+
+			if *localOnly && branch.IsRemote {
+				if *verbose {
+					fmt.Printf("Skipping remote branch %s: --local-only specified\n", branch.Name)
+				}
+				continue
+			}
+			if *remoteOnly && !branch.IsRemote {
+				if *verbose {
+					fmt.Printf("Skipping local branch %s: --remote-only specified\n", branch.Name)
+				}
+				continue
+			}
+
+			includeMatch := false
+			for _, pattern := range cfg.IncludeRegex {
+				matched, err := regexp.MatchString(pattern, branch.Name)
+				if err != nil {
+					if *verbose {
+						fmt.Printf("Warning: Invalid include regex pattern '%s': %v\n", pattern, err)
+					}
+					continue
+				}
+				if matched {
+					includeMatch = true
+					break
+				}
+			}
+			if !includeMatch {
+				if *verbose {
+					fmt.Printf("Skipping branch %s: no include pattern matches\n", branch.Name)
+				}
+				continue
+			}
+
+			if branchService.IsProtectedBranch(&branch, cfg.ProtectedRegex) {
+				if *verbose {
+					fmt.Printf("Skipping protected branch: %s\n", branch.Name)
+				}
+				continue
+			}
+
+			branchCopy := branch
+			qualifyingBranches = append(qualifyingBranches, &branchCopy)
+		}
+	}
+
+	if len(qualifyingBranches) == 0 {
+		fmt.Println("No branches qualify for deletion.")
+		if len(errors) > 0 {
+			fmt.Printf("\nEncountered %d error(s) during processing:\n", len(errors))
+			for _, err := range errors {
+				fmt.Printf("  - %s\n", err)
+			}
+		}
+		return
+	}
+
+	fmt.Printf("\nFound %d branch(es) qualifying for deletion:\n", len(qualifyingBranches))
+	for _, branch := range qualifyingBranches {
+		branchType := "local"
+		if branch.IsRemote {
+			branchType = "remote"
+		}
+		age := time.Since(branch.LastCommitAt)
+		fmt.Printf("  - %s (%s): last commit %s ago by %s (%s)\n",
+			branch.Name, branchType, formatDuration(age), branch.AuthorUserName, branch.LastCommitSHA)
+
+		if *verbose {
+			fmt.Printf("    Author email: %s\n", branch.AuthorEmail)
+			if !branch.IsRemote {
+				fmt.Printf("    Has unpushed commits: %v\n", branch.HasUnpushedCommits)
+			}
+			if branch.Remote != "" {
+				fmt.Printf("    Remote: %s\n", branch.Remote)
+			}
+		}
+	}
+
+	if *dryRun {
+		fmt.Printf("\n[DRY RUN] Would delete %d branch(es). No actual deletions performed.\n", len(qualifyingBranches))
+		if len(errors) > 0 {
+			fmt.Printf("\nEncountered %d error(s) during processing:\n", len(errors))
+			for _, err := range errors {
+				fmt.Printf("  - %s\n", err)
+			}
+		}
+		return
+	}
+
+	fmt.Printf("\nDeleting %d branch(es)...\n", len(qualifyingBranches))
+	var successCount, failCount int
+	var deletionErrors []string
+
+	for _, branch := range qualifyingBranches {
+		branchType := "local"
+		if branch.IsRemote {
+			branchType = "remote"
+		}
+
+		if err := branchService.DeleteBranch(branch); err != nil {
+			failCount++
+			errorMsg := fmt.Sprintf("Failed to delete %s branch %s: %v", branchType, branch.Name, err)
+			deletionErrors = append(deletionErrors, errorMsg)
+			fmt.Printf("  ✗ %s\n", errorMsg)
+		} else {
+			successCount++
+			fmt.Printf("  ✓ Deleted %s branch: %s\n", branchType, branch.Name)
+		}
+	}
+
+	fmt.Printf("\n=== Deletion Summary ===\n")
+	fmt.Printf("Successfully deleted: %d branch(es)\n", successCount)
+	if failCount > 0 {
+		fmt.Printf("Failed to delete: %d branch(es)\n", failCount)
+		fmt.Println("\nDeletion errors:")
+		for _, err := range deletionErrors {
+			fmt.Printf("  - %s\n", err)
+		}
+	}
+
+	if len(errors) > 0 {
+		fmt.Printf("\nProcessing errors (%d):\n", len(errors))
+		for _, err := range errors {
+			fmt.Printf("  - %s\n", err)
+		}
+	}
+
+	fmt.Printf("\nProcessed %d total merged branch(es) across %d base branch(es).\n", totalProcessed, len(cfg.BaseBranches))
 }
 
 // ad-hoc config flow
-func handleConfigCommand(args []string, configService configpkg.Service) {
+func handleConfigCommand(args []string, configService config.Service) {
 	configFlags := flag.NewFlagSet("config", flag.ExitOnError)
 
 	configFlags.Usage = func() {
@@ -154,7 +329,7 @@ func parseMaxAge(input string, defaultDuration time.Duration) (time.Duration, er
 	if input == "" {
 		return defaultDuration, nil
 	}
-	
+
 	days, err := strconv.Atoi(input)
 	if err != nil {
 		return 0, fmt.Errorf("invalid number '%s': expected integer number of days", input)
@@ -203,10 +378,10 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%d hours", hours)
 }
 
-func runInteractiveConfiguration(configService configpkg.Service) error {
+func runInteractiveConfiguration(configService config.Service) error {
 	reader := bufio.NewReader(os.Stdin)
 	currentConfig := configService.Config()
-	newConfig := &configpkg.Config{}
+	newConfig := &config.Config{}
 
 	fmt.Println("=== Clean-Git Configuration Setup ===")
 	fmt.Println("Let's configure clean-git for your repository.")

@@ -116,3 +116,7 @@ func (s *repoConfigService) Update(cfg *Config) error {
 	s.config = cfg
 	return s.Save()
 }
+
+func (s *repoConfigService) ConfigPath() string {
+	return s.configPath
+}

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -95,7 +96,7 @@ func main() {
 
 	switch subcmd {
 	case "clean":
-		handleCleanCommand(flag.Args()[1:], configService)
+		handleCleanCommand(flag.Args()[1:])
 	case "config":
 		handleConfigCommand(flag.Args()[1:], configService)
 	default:
@@ -149,76 +150,126 @@ func handleConfigCommand(args []string, configService configpkg.Service) {
 	fmt.Println("\nConfiguration updated successfully!")
 }
 
+func parseMaxAge(input string, defaultDuration time.Duration) (time.Duration, error) {
+	if input == "" {
+		return defaultDuration, nil
+	}
+	
+	days, err := strconv.Atoi(input)
+	if err != nil {
+		return 0, fmt.Errorf("invalid number '%s': expected integer number of days", input)
+	}
+	if days < 0 {
+		return 0, fmt.Errorf("days must be positive, got %d", days)
+	}
+	return time.Duration(days) * 24 * time.Hour, nil
+}
+
+func parseCommaSeparatedList(input string, defaultList []string, validateRegex bool) ([]string, error) {
+	if input == "" {
+		return defaultList, nil
+	}
+
+	parts := strings.Split(input, ",")
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+
+		if validateRegex {
+			if _, err := regexp.Compile(trimmed); err != nil {
+				return nil, fmt.Errorf("invalid regex pattern '%s': %w", trimmed, err)
+			}
+		}
+
+		result = append(result, trimmed)
+	}
+
+	if len(result) == 0 {
+		return nil, fmt.Errorf("at least one value is required")
+	}
+
+	return result, nil
+}
+
+func formatDuration(d time.Duration) string {
+	hours := int(d.Hours())
+	if hours%24 == 0 {
+		return fmt.Sprintf("%d days", hours/24)
+	}
+	return fmt.Sprintf("%d hours", hours)
+}
+
 func runInteractiveConfiguration(configService configpkg.Service) error {
 	reader := bufio.NewReader(os.Stdin)
 	currentConfig := configService.Config()
 	newConfig := &configpkg.Config{}
 
 	fmt.Println("=== Clean-Git Configuration Setup ===")
-	fmt.Println("Let's configure clean-git for your repository.\n")
+	fmt.Println("Let's configure clean-git for your repository.")
 
 	fmt.Printf("Base branches (branches to keep, comma-separated) [%s]: ", strings.Join(currentConfig.BaseBranches, ","))
+	fmt.Println("  Press Enter to keep defaults or type comma-separated list to override")
 	baseBranchesInput, _ := reader.ReadString('\n')
 	baseBranchesInput = strings.TrimSpace(baseBranchesInput)
-	if baseBranchesInput == "" {
-		newConfig.BaseBranches = currentConfig.BaseBranches
-	} else {
-		newConfig.BaseBranches = strings.Split(baseBranchesInput, ",")
-		for i, branch := range newConfig.BaseBranches {
-			newConfig.BaseBranches[i] = strings.TrimSpace(branch)
-		}
+
+	var err error
+	newConfig.BaseBranches, err = parseCommaSeparatedList(baseBranchesInput, currentConfig.BaseBranches, false)
+	if err != nil {
+		return fmt.Errorf("invalid base branches input: %w", err)
 	}
 
-	currentMaxAgeDays := int(currentConfig.MaxAge.Hours() / 24)
-	fmt.Printf("Maximum age for stale branches (days) [%d]: ", currentMaxAgeDays)
+	currentMaxAgeFormatted := formatDuration(currentConfig.MaxAge)
+	fmt.Printf("Maximum age for stale branches [%s]: ", currentMaxAgeFormatted)
+	fmt.Println("  Enter number of days (e.g., 30)")
 	maxAgeInput, _ := reader.ReadString('\n')
 	maxAgeInput = strings.TrimSpace(maxAgeInput)
-	if maxAgeInput == "" {
-		newConfig.MaxAge = currentConfig.MaxAge
-	} else {
-		days, err := strconv.Atoi(maxAgeInput)
-		if err != nil {
-			return fmt.Errorf("invalid number of days: %w", err)
-		}
-		newConfig.MaxAge = time.Duration(days) * 24 * time.Hour
+
+	newConfig.MaxAge, err = parseMaxAge(maxAgeInput, currentConfig.MaxAge)
+	if err != nil {
+		return fmt.Errorf("invalid max age input: %w", err)
 	}
 
 	fmt.Printf("Protected branch patterns (regex, comma-separated) [%s]: ", strings.Join(currentConfig.ProtectedRegex, ","))
+	fmt.Println("  Default patterns: release/*, hotfix/* - Press Enter to keep or edit")
 	protectedInput, _ := reader.ReadString('\n')
 	protectedInput = strings.TrimSpace(protectedInput)
-	if protectedInput == "" {
-		newConfig.ProtectedRegex = currentConfig.ProtectedRegex
-	} else {
-		newConfig.ProtectedRegex = strings.Split(protectedInput, ",")
-		for i, pattern := range newConfig.ProtectedRegex {
-			newConfig.ProtectedRegex[i] = strings.TrimSpace(pattern)
-		}
+
+	newConfig.ProtectedRegex, err = parseCommaSeparatedList(protectedInput, currentConfig.ProtectedRegex, true)
+	if err != nil {
+		return fmt.Errorf("invalid protected regex patterns: %w", err)
 	}
 
 	fmt.Printf("Include branch patterns (regex, comma-separated) [%s]: ", strings.Join(currentConfig.IncludeRegex, ","))
+	fmt.Println("  Default pattern: .* (matches all) - Press Enter to keep or edit")
 	includeInput, _ := reader.ReadString('\n')
 	includeInput = strings.TrimSpace(includeInput)
-	if includeInput == "" {
-		newConfig.IncludeRegex = currentConfig.IncludeRegex
-	} else {
-		newConfig.IncludeRegex = strings.Split(includeInput, ",")
-		for i, pattern := range newConfig.IncludeRegex {
-			newConfig.IncludeRegex[i] = strings.TrimSpace(pattern)
-		}
+
+	newConfig.IncludeRegex, err = parseCommaSeparatedList(includeInput, currentConfig.IncludeRegex, true)
+	if err != nil {
+		return fmt.Errorf("invalid include regex patterns: %w", err)
 	}
 
 	fmt.Printf("Remote name [%s]: ", currentConfig.RemoteName)
+	fmt.Println("  Default: origin - Press Enter to keep or type new remote name")
 	remoteInput, _ := reader.ReadString('\n')
 	remoteInput = strings.TrimSpace(remoteInput)
 	if remoteInput == "" {
 		newConfig.RemoteName = currentConfig.RemoteName
 	} else {
+		// Basic validation for remote name (no spaces, no special chars except -_)
+		if matched, _ := regexp.MatchString(`^[a-zA-Z0-9_-]+$`, remoteInput); !matched {
+			return fmt.Errorf("invalid remote name '%s': must contain only letters, numbers, hyphens, and underscores", remoteInput)
+		}
 		newConfig.RemoteName = remoteInput
 	}
 
 	fmt.Println("\n=== Configuration Summary ===")
 	fmt.Printf("Base branches: %s\n", strings.Join(newConfig.BaseBranches, ", "))
-	fmt.Printf("Max age: %d days\n", int(newConfig.MaxAge.Hours()/24))
+	fmt.Printf("Max age: %s\n", formatDuration(newConfig.MaxAge))
 	fmt.Printf("Protected patterns: %s\n", strings.Join(newConfig.ProtectedRegex, ", "))
 	fmt.Printf("Include patterns: %s\n", strings.Join(newConfig.IncludeRegex, ", "))
 	fmt.Printf("Remote name: %s\n", newConfig.RemoteName)
@@ -235,6 +286,15 @@ func runInteractiveConfiguration(configService configpkg.Service) error {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	fmt.Println("Configuration saved successfully!")
+	configPath := configService.ConfigPath()
+	fmt.Println("\n=== Configuration Saved Successfully! ===")
+	fmt.Printf("Configuration file: %s\n", configPath)
+	fmt.Println("\nSaved configuration:")
+	fmt.Printf("  • Base branches: %s\n", strings.Join(newConfig.BaseBranches, ", "))
+	fmt.Printf("  • Max age: %s\n", formatDuration(newConfig.MaxAge))
+	fmt.Printf("  • Protected patterns: %s\n", strings.Join(newConfig.ProtectedRegex, ", "))
+	fmt.Printf("  • Include patterns: %s\n", strings.Join(newConfig.IncludeRegex, ", "))
+	fmt.Printf("  • Remote name: %s\n", newConfig.RemoteName)
+	fmt.Println("\nYou can now use clean-git to manage your repository branches!")
 	return nil
 }

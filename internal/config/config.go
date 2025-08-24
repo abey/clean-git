@@ -20,6 +20,7 @@ type Service interface {
 	Save() error
 	Update(cfg *Config) error
 	IsOnboarded() bool
+	ConfigPath() string
 }
 
 func DefaultConfig() *Config {

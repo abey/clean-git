@@ -14,6 +14,7 @@ type BranchService interface {
 	GetBranchByName(branchName string) (*Branch, error)
 	DeleteBranch(branch *Branch) error
 	IsProtectedBranch(branch *Branch, patterns []string) bool
+	BranchExists(branchName string) (bool, error)
 }
 
 type TestableGitClient interface {
@@ -24,6 +25,7 @@ type TestableGitClient interface {
 	DeleteLocalBranch(branchName string) error
 	DeleteRemoteBranch(remote, branchName string) error
 	HasUnpushedCommits(branchName string) (bool, error)
+	BranchExists(branchName string) (bool, error)
 }
 
 type DefaultBranchService struct {
@@ -128,6 +130,10 @@ func (s *DefaultBranchService) IsProtectedBranch(branch *Branch, patterns []stri
 		}
 	}
 	return false
+}
+
+func (s *DefaultBranchService) BranchExists(branchName string) (bool, error) {
+	return s.Client.branchExists(branchName)
 }
 
 func (s *DefaultBranchService) createBranchFromName(branchName string) (*Branch, error) {
@@ -268,6 +274,10 @@ func (s *TestableBranchService) IsProtectedBranch(branch *Branch, patterns []str
 		}
 	}
 	return false
+}
+
+func (s *TestableBranchService) BranchExists(branchName string) (bool, error) {
+	return s.client.BranchExists(branchName)
 }
 
 func (s *TestableBranchService) createBranchFromName(branchName string) (*Branch, error) {

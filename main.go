@@ -141,6 +141,20 @@ func handleCleanCommand(args []string, configService config.Service) {
 			fmt.Printf("Processing base branch: %s\n", baseBranch)
 		}
 
+		exists, err := branchService.BranchExists(baseBranch)
+		if err != nil {
+			errorMsg := fmt.Sprintf("Failed to check if base branch %s exists: %v", baseBranch, err)
+			errors = append(errors, errorMsg)
+			if *verbose {
+				fmt.Fprintf(os.Stderr, "Warning: %s\n", errorMsg)
+			}
+			continue
+		}
+		if !exists {
+			fmt.Printf("Base branch '%s' not found in this repository, skipping\n", baseBranch)
+			continue
+		}
+
 		mergedBranches, err := branchService.GetMergedBranches(baseBranch)
 		if err != nil {
 			errorMsg := fmt.Sprintf("Failed to get merged branches for %s: %v", baseBranch, err)

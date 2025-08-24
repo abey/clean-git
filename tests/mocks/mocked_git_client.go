@@ -281,6 +281,34 @@ func (m *SophisticatedGitClient) HasUnpushedCommits(branchName string) (bool, er
 	return exists && count > 0, nil
 }
 
+func (m *SophisticatedGitClient) BranchExists(branchName string) (bool, error) {
+	if err, exists := m.commandFailures["BranchExists"]; exists {
+		return false, err
+	}
+
+	// Check if branch exists in our mock data
+	_, exists := m.branches[branchName]
+	if exists {
+		return true, nil
+	}
+
+	// Also check for remote branches with different naming patterns
+	for storedName, storedData := range m.branches {
+		if storedData.IsRemote {
+			remoteName := storedData.Remote
+			if remoteName == "" {
+				remoteName = "origin"
+			}
+			// Check if requested branch matches remote/branch format
+			if branchName == remoteName+"/"+storedData.Name || branchName == storedName {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
 // Helper methods for output simulation
 func (m *SophisticatedGitClient) getMergedBranchesOutput(args []string) string {
 	var output []string

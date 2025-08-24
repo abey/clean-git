@@ -13,12 +13,13 @@ type gitClient interface {
 	getCurrentBranchName() (string, error)
 	getMergedBranchNames(baseBranch string) ([]string, error)
 	getAllBranchNames() ([]string, error)
-	getBranchCommitInfo(branchName string) (string, error) // Returns formatted commit info
+	getBranchCommitInfo(branchName string) (string, error)
 	deleteLocalBranch(branchName string) error
 	deleteRemoteBranch(remote, branchName string) error
 	hasUnpushedCommits(branchName string) (bool, error)
 	getCurrentUserName() (string, error)
 	getCurrentUserEmail() (string, error)
+	branchExists(branchName string) (bool, error)
 }
 
 type defaultGitClient struct{}
@@ -47,7 +48,7 @@ func (c *defaultGitClient) getCurrentBranchName() (string, error) {
 func (c *defaultGitClient) getMergedBranchNames(baseBranch string) ([]string, error) {
 	output, err := c.run("branch", "--merged", baseBranch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get merged branches: %w", err)
+		return nil, fmt.Errorf("failed to get merged branches for '%s': %w", baseBranch, err)
 	}
 
 	lines := strings.Split(strings.TrimSpace(output), "\n")
@@ -148,4 +149,26 @@ func (c *defaultGitClient) getCurrentUserEmail() (string, error) {
 		return "", fmt.Errorf("user.email is not set in git config")
 	}
 	return email, nil
+}
+
+func (c *defaultGitClient) branchExists(branchName string) (bool, error) {
+	_, err := c.run("show-ref", "--verify", "--quiet", "refs/heads/"+branchName)
+	if err == nil {
+		return true, nil
+	}
+
+	remotes := []string{"origin", "upstream"}
+	for _, remote := range remotes {
+		_, err := c.run("show-ref", "--verify", "--quiet", "refs/remotes/"+remote+"/"+branchName)
+		if err == nil {
+			return true, nil
+		}
+	}
+
+	_, err = c.run("rev-parse", "--verify", "--quiet", branchName)
+	if err == nil {
+		return true, nil
+	}
+
+	return false, nil
 }

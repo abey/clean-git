@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	Version     = "0.1.1"
+	Version     = "0.2.0"
 	Description = "A tool for cleaning up stale and merged branches in your repository and make your life easier."
 )
 
@@ -333,7 +333,6 @@ func handleListCommand(args []string, configService config.Service) {
 
 	listFlags.Parse(args)
 
-	// Ensure repository is configured - reusing existing validation pattern
 	if !configService.IsOnboarded() {
 		errors.FatalError(errors.ExitConfig, "Repository not configured. Run 'clean-git config' first")
 	}
@@ -343,10 +342,8 @@ func handleListCommand(args []string, configService config.Service) {
 		errors.FatalError(errors.ExitConfig, "Failed to load configuration")
 	}
 
-	// Initialize BranchService using existing pattern from handleCleanCommand
 	branchService := git.NewBranchService(cfg.RemoteName)
 
-	// Get all branches using existing service method
 	allBranches, err := branchService.GetAllBranches()
 	if err != nil {
 		errors.FatalError(errors.ExitGit, "Failed to get branches: %v", err)
@@ -356,16 +353,13 @@ func handleListCommand(args []string, configService config.Service) {
 		fmt.Printf("Found %d total branches\n", len(allBranches))
 	}
 
-	// Create a map to track merged branches for each base branch
-	// Reusing existing GetMergedBranches method to determine merge status
-	mergedBranchMap := make(map[string]map[string]time.Time) // baseBranch -> branchName -> mergeTime
+	mergedBranchMap := make(map[string]map[string]time.Time)
 
 	for _, baseBranch := range cfg.BaseBranches {
 		if *verbose {
 			fmt.Printf("Checking merged branches for base: %s\n", baseBranch)
 		}
 
-		// Check if base branch exists - reusing existing validation pattern
 		exists, err := branchService.BranchExists(baseBranch)
 		if err != nil {
 			if *verbose {
@@ -380,7 +374,6 @@ func handleListCommand(args []string, configService config.Service) {
 			continue
 		}
 
-		// Get merged branches using existing service method
 		mergedBranches, err := branchService.GetMergedBranches(baseBranch)
 		if err != nil {
 			if *verbose {
@@ -389,7 +382,6 @@ func handleListCommand(args []string, configService config.Service) {
 			continue
 		}
 
-		// Store merge information for display
 		if mergedBranchMap[baseBranch] == nil {
 			mergedBranchMap[baseBranch] = make(map[string]time.Time)
 		}
@@ -398,7 +390,6 @@ func handleListCommand(args []string, configService config.Service) {
 		}
 	}
 
-	// Filter branches based on flags - following existing pattern
 	var filteredBranches []git.Branch
 	for _, branch := range allBranches {
 		if *localOnly && branch.IsRemote {
@@ -410,7 +401,6 @@ func handleListCommand(args []string, configService config.Service) {
 		filteredBranches = append(filteredBranches, branch)
 	}
 
-	// Sort branches by LastCommitAt (most recent first)
 	sort.Slice(filteredBranches, func(i, j int) bool {
 		return filteredBranches[i].LastCommitAt.After(filteredBranches[j].LastCommitAt)
 	})
@@ -420,25 +410,19 @@ func handleListCommand(args []string, configService config.Service) {
 		return
 	}
 
-	// Display header
 	fmt.Printf("\n=== Branch List (%d branches) ===\n", len(filteredBranches))
 	fmt.Printf("Sorted by most recent commit first\n\n")
 
-	// Display branches in a nice CLI format
 	for _, branch := range filteredBranches {
-		// Current branch indicator
 		currentIndicator := " "
 		if branch.IsCurrent {
 			currentIndicator = "*"
 		}
-
-		// Branch type indicator
 		branchType := "local"
 		if branch.IsRemote {
 			branchType = "remote"
 		}
 
-		// Determine merge status and which base branch it was merged into
 		mergeStatus := "not merged"
 		var mergeTime time.Time
 		var mergedInto string
@@ -452,11 +436,9 @@ func handleListCommand(args []string, configService config.Service) {
 			}
 		}
 
-		// Format last commit time
 		age := time.Since(branch.LastCommitAt)
 		ageStr := formatDuration(age)
 
-		// Remote tracking status for local branches
 		remoteInfo := ""
 		if !branch.IsRemote {
 			if branch.HasUnpushedCommits {
@@ -466,7 +448,6 @@ func handleListCommand(args []string, configService config.Service) {
 			}
 		}
 
-		// Display branch information
 		fmt.Printf("%s %-30s %-8s %-12s last: %-12s",
 			currentIndicator,
 			branch.Name,
@@ -481,7 +462,6 @@ func handleListCommand(args []string, configService config.Service) {
 
 		fmt.Printf("%s\n", remoteInfo)
 
-		// Verbose information - following existing verbose pattern
 		if *verbose {
 			fmt.Printf("    Author: %s (%s)\n", branch.AuthorUserName, branch.AuthorEmail)
 			fmt.Printf("    SHA: %s\n", branch.LastCommitSHA)
@@ -491,7 +471,6 @@ func handleListCommand(args []string, configService config.Service) {
 		}
 	}
 
-	// Summary information
 	localCount := 0
 	remoteCount := 0
 	mergedCount := 0
@@ -507,7 +486,6 @@ func handleListCommand(args []string, configService config.Service) {
 			currentBranchName = branch.Name
 		}
 
-		// Check if merged
 		for _, mergedBranches := range mergedBranchMap {
 			if _, isMerged := mergedBranches[branch.Name]; isMerged {
 				mergedCount++

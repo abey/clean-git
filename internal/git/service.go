@@ -109,7 +109,7 @@ func (s *DefaultBranchService) DeleteBranch(branch *Branch) error {
 			if s.RemoteName != "" {
 				branch.Remote = s.RemoteName
 			} else {
-				return fmt.Errorf("remote name not configured and branch has no remote specified")
+				branch.Remote = "origin" // Fallback to origin when no remote is configured
 			}
 		}
 		return s.Client.deleteRemoteBranch(branch.Remote, branch.Name)
@@ -249,7 +249,7 @@ func (s *TestableBranchService) DeleteBranch(branch *Branch) error {
 			if s.RemoteName != "" {
 				branch.Remote = s.RemoteName
 			} else {
-				return fmt.Errorf("remote name not configured and branch has no remote specified")
+				branch.Remote = "origin" // Fallback to origin when no remote is configured
 			}
 		}
 		return s.client.DeleteRemoteBranch(branch.Remote, branch.Name)

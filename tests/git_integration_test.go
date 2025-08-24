@@ -3,7 +3,7 @@ package clean_git_tests
 import (
 	"testing"
 
-	"clean-git/internal/git"
+	"github.com/abey/clean-git/internal/git"
 
 	"github.com/stretchr/testify/assert"
 )

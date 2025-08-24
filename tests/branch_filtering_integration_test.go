@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"clean-git/internal/config"
-	"clean-git/internal/git"
-	"clean-git/tests/mocks"
+	"github.com/abey/clean-git/internal/config"
+	"github.com/abey/clean-git/internal/git"
+	"github.com/abey/clean-git/tests/mocks"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

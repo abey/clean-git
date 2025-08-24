@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"clean-git/tests/mocks"
+	"github.com/abey/clean-git/tests/mocks"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

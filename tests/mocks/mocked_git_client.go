@@ -14,12 +14,13 @@ type DeleteRemoteBranchCall struct {
 
 // SophisticatedGitClient provides realistic git command simulation
 type SophisticatedGitClient struct {
-	currentBranch          string
-	branches               map[string]BranchData
-	remotes                map[string]string // branch -> remote
-	unpushedCommits        map[string]int    // branch -> count
-	commandFailures        map[string]error  // command -> error to return
+	currentBranch           string
+	branches                map[string]BranchData
+	remotes                 map[string]string        // branch -> remote
+	unpushedCommits         map[string]int           // branch -> count
+	commandFailures         map[string]error         // command -> error to return
 	deleteRemoteBranchCalls []DeleteRemoteBranchCall // Track delete remote branch calls
+	mergedBranchesByBase    map[string][]string      // base branch -> merged branch names
 }
 
 type BranchData struct {
@@ -80,6 +81,7 @@ func NewMockedGitClient() *SophisticatedGitClient {
 		unpushedCommits:         map[string]int{},
 		commandFailures:         map[string]error{},
 		deleteRemoteBranchCalls: []DeleteRemoteBranchCall{},
+		mergedBranchesByBase:    map[string][]string{},
 	}
 }
 
@@ -113,6 +115,13 @@ func (m *SophisticatedGitClient) SetUnpushedCommits(branch string, count int) {
 
 func (m *SophisticatedGitClient) SetCommandFailure(command string, err error) {
 	m.commandFailures[command] = err
+}
+
+func (m *SophisticatedGitClient) SetMergedBranchesForBase(base string, branches []string) {
+	if m.mergedBranchesByBase == nil {
+		m.mergedBranchesByBase = make(map[string][]string)
+	}
+	m.mergedBranchesByBase[base] = branches
 }
 
 // GetDeleteRemoteBranchCalls returns all tracked DeleteRemoteBranch calls for testing
@@ -161,12 +170,13 @@ func (m *SophisticatedGitClient) GetMergedBranchNames(baseBranch string) ([]stri
 		return nil, err
 	}
 
+	if branches, ok := m.mergedBranchesByBase[baseBranch]; ok {
+		return branches, nil
+	}
+
 	var merged []string
 	for key, data := range m.branches {
 		if data.IsMerged && key != baseBranch {
-			// For both local and remote branches, use the key directly
-			// Remote branches are already stored with remotes/origin/ format
-			// Local branches are stored with just the branch name
 			merged = append(merged, key)
 		}
 	}
@@ -227,7 +237,7 @@ func (m *SophisticatedGitClient) GetBranchCommitInfo(branchName string) (string,
 			}
 		}
 	}
-	
+
 	if !exists {
 		return "", fmt.Errorf("branch %s not found", branchName)
 	}

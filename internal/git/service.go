@@ -66,6 +66,24 @@ func (s *DefaultBranchService) GetMergedBranches(baseBranch string) ([]Branch, e
 		return nil, err
 	}
 
+	remoteName := s.RemoteName
+	if remoteName == "" {
+		remoteName = "origin"
+	}
+	remoteBase := fmt.Sprintf("%s/%s", remoteName, baseBranch)
+	remoteMerged, err := s.Client.getMergedBranchNames(remoteBase)
+	if err == nil {
+		existing := make(map[string]bool)
+		for _, name := range branchNames {
+			existing[name] = true
+		}
+		for _, name := range remoteMerged {
+			if !existing[name] {
+				branchNames = append(branchNames, name)
+			}
+		}
+	}
+
 	var branches []Branch
 	for _, name := range branchNames {
 		branch, err := s.GetBranchByName(name)
@@ -241,6 +259,24 @@ func (s *TestableBranchService) GetMergedBranches(baseBranch string) ([]Branch, 
 	branchNames, err := s.client.GetMergedBranchNames(baseBranch)
 	if err != nil {
 		return nil, err
+	}
+
+	remoteName := s.RemoteName
+	if remoteName == "" {
+		remoteName = "origin"
+	}
+	remoteBase := fmt.Sprintf("%s/%s", remoteName, baseBranch)
+	remoteMerged, err := s.client.GetMergedBranchNames(remoteBase)
+	if err == nil {
+		existing := make(map[string]bool)
+		for _, name := range branchNames {
+			existing[name] = true
+		}
+		for _, name := range remoteMerged {
+			if !existing[name] {
+				branchNames = append(branchNames, name)
+			}
+		}
 	}
 
 	var branches []Branch

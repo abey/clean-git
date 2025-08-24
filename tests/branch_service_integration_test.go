@@ -161,6 +161,21 @@ func TestBranchService_GetMergedBranches(t *testing.T) {
 	}
 }
 
+func TestBranchService_GetMergedBranches_RemoteFallback(t *testing.T) {
+	mockClient := mocks.NewMockedGitClient()
+	// Simulate scenario where local base doesn't show merged branches but remote base does
+	mockClient.SetMergedBranchesForBase("main", []string{})
+	mockClient.SetMergedBranchesForBase("origin/main", []string{"feature/merged"})
+
+	service := git.NewBranchServiceWithClient(mockClient, "origin")
+
+	branches, err := service.GetMergedBranches("main")
+	require.NoError(t, err)
+	require.Len(t, branches, 1)
+	assert.Equal(t, "feature/merged", branches[0].Name)
+	assert.True(t, branches[0].IsMerged)
+}
+
 func TestBranchService_GetBranchesWithTrackedRemotes(t *testing.T) {
 	tests := []struct {
 		name           string
